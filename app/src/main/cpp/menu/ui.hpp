@@ -113,7 +113,7 @@ namespace ui
     // ---------- Фигуры и иконки ----------
     void RoundRect(ImDrawList* dl, ImVec2 a, ImVec2 b, float rTL, float rTR, float rBR, float rBL, ImU32 col);
 
-    enum class EIcon { Flight, GridView, Bolt, Cloud, Settings, Info, Close, ChevronRight, Check, Edit, Add, Backspace, Shift, ShiftOn };
+    enum class EIcon { Flight, GridView, Bolt, Cloud, Settings, Info, Close, ChevronRight, Check, Edit, Add, Backspace, Shift, ShiftOn, Cube };
     void Icon(ImDrawList* dl, EIcon icon, ImVec2 center, float size, ImU32 col);   // Material Symbols, сетка 24
 
     // ---------- Компоненты для страниц ----------
@@ -149,4 +149,15 @@ namespace ui
     // Snackbar M3 внизу текущего окна; alpha — для появления и исчезания
     void Snackbar(const char* text, float alpha);
     void Gap       (float dpValue);   // отступ между группами
+
+    // Иконка плитки i в центре c, размер — высота иконки (рисует вызывающий: блоки, предметы)
+    using FnIcon = void (*)(ImDrawList* dl, int i, ImVec2 c, float size, void* user);
+    using FnName = const char* (*)(int i, void* user);
+    // Сетка плиток, как инвентарь: выбранная — secondary container с рамкой primary, внизу
+    // подпись наведённой (или выбранной). bPixelArt — иконки без сглаживания текстур.
+    // Возвращает индекс нажатой плитки, иначе -1.
+    int  TileGrid(const char* id, int count, int selected, FnIcon icon, FnName name, void* user, bool bPixelArt, ERow pos = ERow::Single);
+    // Строка с крупной иконкой слева (i < 0 — пустая ячейка) и кнопкой "убрать" справа
+    // (bClose); true — нажали её.
+    bool IconRow(const char* headline, const char* supporting, FnIcon icon, int i, void* user, bool bPixelArt, bool bClose, ERow pos = ERow::Single);
 }

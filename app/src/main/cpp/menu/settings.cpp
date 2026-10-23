@@ -1,7 +1,7 @@
 #include "settings.hpp"
 #include "theme.hpp"
 #include "ui.hpp"
-#include "../mods/mods.hpp"
+#include "../mods/minecraft.hpp"
 
 #include "imgui.h"
 
@@ -54,8 +54,11 @@ namespace
             __android_log_print(ANDROID_LOG_WARN, "shkbd", "settings: can't write %s", pszPath);
             return;
         }
-        fprintf(f, "seed=%d\nstyle=%d\ndark=%d\nsize=%.0f\nmotion=%d\nflyspeed=%.1f\n",
-                g_S.iSeed, g_S.iStyle, (int)g_S.bDark, g_S.fSizePct, (int)g_S.bMotion, mods::Fly.fSpeed);
+        const minecraft::SOptions mc = minecraft::GetOptions();
+        fprintf(f, "seed=%d\nstyle=%d\ndark=%d\nsize=%.0f\nmotion=%d\n"
+                   "mc_size=%.2f\nmc_snap=%d\nmc_solid=%d\nmc_hide=%d\nmc_bright=%.0f\n",
+                g_S.iSeed, g_S.iStyle, (int)g_S.bDark, g_S.fSizePct, (int)g_S.bMotion,
+                mc.fSize, (int)mc.bSnap, (int)mc.bSolid, (int)mc.bHideBehind, mc.fBrightness);
         fclose(f);
     }
 
@@ -71,6 +74,7 @@ settings::SSettings& settings::Get() { return g_S; }
 
 void settings::Load()
 {
+    minecraft::SOptions mc = minecraft::GetOptions();
     if (const char* pszPath = Path())
         if (FILE* f = fopen(pszPath, "r"))
         {
@@ -83,7 +87,11 @@ void settings::Load()
                 else if (sscanf(szLine, "dark=%d",     &i) == 1) g_S.bDark    = i != 0;
                 else if (sscanf(szLine, "size=%f",     &v) == 1) g_S.fSizePct = v;
                 else if (sscanf(szLine, "motion=%d",   &i) == 1) g_S.bMotion  = i != 0;
-                else if (sscanf(szLine, "flyspeed=%f", &v) == 1) mods::Fly.fSpeed = v;
+                else if (sscanf(szLine, "mc_size=%f",   &v) == 1) mc.fSize       = v;
+                else if (sscanf(szLine, "mc_snap=%d",   &i) == 1) mc.bSnap       = i != 0;
+                else if (sscanf(szLine, "mc_solid=%d",  &i) == 1) mc.bSolid      = i != 0;
+                else if (sscanf(szLine, "mc_hide=%d",   &i) == 1) mc.bHideBehind = i != 0;
+                else if (sscanf(szLine, "mc_bright=%f", &v) == 1) mc.fBrightness = v;
             }
             fclose(f);
         }
@@ -91,7 +99,9 @@ void settings::Load()
     g_S.iSeed        = Clamp(g_S.iSeed, 0, theme::kSeedCount - 1);
     g_S.iStyle       = Clamp(g_S.iStyle, 0, theme::kStyleCount - 1);
     g_S.fSizePct     = Clamp(g_S.fSizePct, 80.f, 130.f);
-    mods::Fly.fSpeed = Clamp(mods::Fly.fSpeed, 2.f, 30.f);
+    mc.fSize         = Clamp(mc.fSize, 0.1f, 1.f);
+    mc.fBrightness   = Clamp(mc.fBrightness, 30.f, 100.f);
+    minecraft::SetOptions(mc);
     g_fScale = g_fTargetScale = g_S.fSizePct / 100.f;
     ui::g_bMotion = g_S.bMotion;
     ApplyTheme(false);

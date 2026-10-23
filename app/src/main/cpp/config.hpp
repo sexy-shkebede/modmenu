@@ -28,10 +28,12 @@ namespace cfg
     inline constexpr int   kBeamSprite[4]    = { 0,   kPanelResY + 8, 32,  128 };
     inline constexpr int   kReticleSprite[4] = { 48,  kPanelResY + 8, 128, 128 };
     inline constexpr int   kLabelSprite[4]   = { 192, kPanelResY + 8, 768, 96  };
-    inline constexpr int   kBallSprite[4]    = { 976, kPanelResY + 8, 128, 128 };   // шар платформы на руке
-    inline constexpr float kGrabBallM        = 0.14f;                               // диаметр шара, м
     inline constexpr float kSpawnBeamMaxM    = 30.f;    // дальность луча, м
     inline constexpr float kSpawnBeamWidthM  = 0.008f;  // толщина луча, м
+
+    // Слой мира с блоками: стерео, глаза рядом в одной текстуре. Разрешение — на глаз
+    // (по одной стороне): выше — чётче края блоков, но дороже для GPU.
+    inline constexpr int   kWorldEyeRes      = 1280;
 
     // Меню висит на позе "прицела" (aim) левого контроллера; false — на позе рукояти (grip).
     // Смещение — в метрах, в осях контроллера: +X вправо, +Y вверх, -Z вперёд.
@@ -49,19 +51,23 @@ namespace cfg
     // Прокрутка страниц правым стиком (вверх/вниз), пока луч на меню.
     inline constexpr bool  kStickScroll = true;
 
-    // Fly и Noclip: кнопка ПРАВОГО контроллера, которую держишь, чтобы лететь / проходить сквозь стены.
-    enum class EFlyButton { A, B, Grip, Trigger };
-    inline constexpr EFlyButton kFlyButton = EFlyButton::A;
+    // Minecraft: кнопка ПРАВОГО контроллера, которая переключает Place / Break, пока в руке блок.
+    // None — переключать только в меню. Игра эту кнопку тоже видит.
+    enum class EModeButton { None, A, B };
+    inline constexpr EModeButton kModeButton = EModeButton::B;
+
+    // Minecraft: сколько блоков можно поставить и как далеко "в воздухе" встаёт блок,
+    // если луч ни во что не попал (м)
+    inline constexpr int   kMaxBlocks     = 1000;
+    inline constexpr float kAirPlaceM     = 1.5f;
 
     // Меняется на лету из Settings (сохраняется в файл настроек меню).
     inline float g_fPanelScale = 1.f;    // множитель физического размера панели
     inline bool  g_bMotion     = true;   // анимации меню (включая «пружину» появления)
 
-    constexpr const char* FlyButtonName()
+    constexpr const char* ModeButtonName()
     {
-        return kFlyButton == EFlyButton::A    ? "A"
-             : kFlyButton == EFlyButton::B    ? "B"
-             : kFlyButton == EFlyButton::Grip ? "grip" : "trigger";
+        return kModeButton == EModeButton::A ? "A" : kModeButton == EModeButton::B ? "B" : nullptr;
     }
 
     constexpr const char* ToggleButtonName()

@@ -220,6 +220,15 @@ namespace ui
             else                        dl->AddPolyline(pts, IM_ARRAYSIZE(pts), col, stroke * 0.8f, ImDrawFlags_Closed);
             break;
         }
+        case EIcon::Cube:   // изометрический куб, как deployed_code
+        {
+            const ImVec2 hex[] = { P(12.f, 2.5f), P(20.5f, 7.f), P(20.5f, 17.f), P(12.f, 21.5f), P(3.5f, 17.f), P(3.5f, 7.f) };
+            dl->AddPolyline(hex, IM_ARRAYSIZE(hex), col, stroke * 0.9f, ImDrawFlags_Closed);
+            dl->AddLine(P(3.5f, 7.f),  P(12.f, 11.5f), col, stroke * 0.9f);
+            dl->AddLine(P(20.5f, 7.f), P(12.f, 11.5f), col, stroke * 0.9f);
+            dl->AddLine(P(12.f, 11.5f), P(12.f, 21.5f), col, stroke * 0.9f);
+            break;
+        }
         case EIcon::Close:
             dl->AddLine(P(6, 6), P(18, 18), col, stroke);
             dl->AddLine(P(18, 6), P(6, 18), col, stroke);
@@ -725,5 +734,129 @@ namespace ui
         RoundRect(win->DrawList, b0, b1, r, r, r, r, Col(role::InverseSurface));
         Text(win->DrawList, type::BodyMedium, ImVec2(b0.x + dp(16), b0.y + (h - ts.y) * 0.5f), Col(role::InverseOnSurface), text, wrap);
         ImGui::PopStyleVar();
+    }
+
+    // ================================================================ плитки с иконками
+    // Пиксельные текстуры — без размытия: сэмплер бэкенда на время иконок
+    static void PixelSampler(ImDrawList* dl, bool bNearest)
+    {
+        const ImGuiPlatformIO& pio = ImGui::GetPlatformIO();
+        const ImDrawCallback   cb  = bNearest ? pio.DrawCallback_SetSamplerNearest : pio.DrawCallback_SetSamplerLinear;
+        if (cb) dl->AddCallback(cb, nullptr);
+    }
+
+    int TileGrid(const char* id, int count, int selected, FnIcon icon, FnName name, void* user, bool bPixelArt, ERow pos)
+    {
+        ImGuiWindow* win = ImGui::GetCurrentWindow();
+        if (win->SkipItems || count <= 0) return -1;
+
+        const ImGuiID gid   = win->GetID(id);
+        const ImVec2  p     = ImGui::GetCursorScreenPos();
+        const float   w     = ImGui::GetContentRegionAvail().x;
+        const float   T     = dp(64), gap = dp(4), pad = dp(12);
+        const int     cols  = ImMax(1, (int)((w - pad * 2.f + gap) / (T + gap)));
+        const int     rows  = (count + cols - 1) / cols;
+        const float   gridW = (float)cols * T + (float)(cols - 1) * gap;
+        const float   gridH = (float)rows * T + (float)(rows - 1) * gap;
+        const float   capH  = type::BodyMedium + dp(16);
+        const ImRect  bb(p, ImVec2(p.x + w, p.y + pad + gridH + capH));
+        ImGui::ItemSize(bb.GetSize());
+        if (!ImGui::IsRectVisible(bb.Min, bb.Max)) return -1;
+
+        ImDrawList*    dl        = win->DrawList;
+        const unsigned container = role::SurfaceContainerHigh;
+        RowShape(dl, bb, pos, Col(container));
+
+        // Плитки: фон, слой состояния, рамка выбранной; иконки — вторым проходом, одним сэмплером
+        const float x0 = bb.Min.x + (w - gridW) * 0.5f, y0 = bb.Min.y + pad;
+        int iPressed = -1, iHovered = -1;
+        ImVector<float> hover;
+        hover.resize(count);
+        for (int i = 0; i < count; i++)
+        {
+            const ImGuiID sid = gid + 1u + (ImGuiID)i;
+            const ImVec2  t0(x0 + (float)(i % cols) * (T + gap), y0 + (float)(i / cols) * (T + gap));
+            const ImRect  tb(t0, ImVec2(t0.x + T, t0.y + T));
+            ImGui::ItemAdd(tb, sid);
+            bool bHovered = false, bHeld = false;
+            if (ImGui::ButtonBehavior(tb, sid, &bHovered, &bHeld, ImGuiButtonFlags_PressedOnClick)) iPressed = i;
+            if (bHovered) iHovered = i;
+
+            const SRowAnim a    = RowAnim(sid, bHovered, bHeld);
+            float*         pSel = ImGui::GetStateStorage()->GetFloatRef(sid ^ 0x51E7u, selected == i ? 1.f : 0.f);
+            *pSel = MoveTowards(*pSel, selected == i ? 1.f : 0.f, AnimDt() / dur::Short4);
+            hover[i] = a.fHover - a.fPress * 0.5f;
+
+            const unsigned fill = Mix(Mix(container, role::SecondaryContainer, *pSel), role::OnSurface, Layer(a));
+            if (fill != container)
+                RoundRect(dl, tb.Min, tb.Max, shape::Small, shape::Small, shape::Small, shape::Small, Col(fill));
+            if (*pSel > 0.01f)
+                dl->AddRect(ImVec2(tb.Min.x + dp(1), tb.Min.y + dp(1)), ImVec2(tb.Max.x - dp(1), tb.Max.y - dp(1)),
+                            Col(role::Primary, *pSel), shape::Small, dp(2));
+        }
+        if (bPixelArt) PixelSampler(dl, true);
+        for (int i = 0; i < count; i++)
+        {
+            const ImVec2 c(x0 + (float)(i % cols) * (T + gap) + T * 0.5f, y0 + (float)(i / cols) * (T + gap) + T * 0.5f);
+            icon(dl, i, c, T * (0.64f + 0.05f * hover[i]), user);
+        }
+        if (bPixelArt) PixelSampler(dl, false);
+
+        const int iCaption = iHovered >= 0 ? iHovered : (selected >= 0 && selected < count ? selected : -1);
+        if (const char* psz = iCaption >= 0 ? name(iCaption, user) : nullptr)
+            Text(dl, type::BodyMedium, ImVec2(bb.Min.x + dp(16), y0 + gridH + (capH - type::BodyMedium) * 0.5f),
+                 Col(iCaption == selected ? role::Primary : role::OnSurfaceVariant), psz);
+        return iPressed;
+    }
+
+    bool IconRow(const char* headline, const char* supporting, FnIcon icon, int i, void* user, bool bPixelArt, bool bClose, ERow pos)
+    {
+        ImGuiWindow* win = ImGui::GetCurrentWindow();
+        if (win->SkipItems) return false;
+
+        const ImVec2 p     = ImGui::GetCursorScreenPos();
+        const float  w     = ImGui::GetContentRegionAvail().x;
+        const float  textX = dp(16 + 56 + 16);
+        const float  textW = w - textX - (bClose ? dp(56) : dp(16));
+        const float  supH  = supporting ? TextSize(type::BodyMedium, supporting, textW).y : 0.f;
+        const float  h     = ImMax(dp(88), dp(16) + type::BodyLarge + dp(2) + supH + dp(16));
+        const ImRect bb(p, ImVec2(p.x + w, p.y + h));
+        ImGui::ItemSize(bb.GetSize());
+        if (!ImGui::IsRectVisible(bb.Min, bb.Max)) return false;
+
+        ImDrawList* dl = win->DrawList;
+        RowShape(dl, bb, pos, Col(role::SurfaceContainerHigh));
+
+        // Ячейка 56 dp: иконка или пустая (только контур)
+        const float  cy = (bb.Min.y + bb.Max.y) * 0.5f;
+        const ImVec2 s0(bb.Min.x + dp(16), cy - dp(28)), s1(s0.x + dp(56), s0.y + dp(56));
+        RoundRect(dl, s0, s1, shape::Small, shape::Small, shape::Small, shape::Small, Col(role::SurfaceContainerHighest));
+        if (i >= 0 && icon)
+        {
+            if (bPixelArt) PixelSampler(dl, true);
+            icon(dl, i, ImVec2((s0.x + s1.x) * 0.5f, cy), dp(40), user);
+            if (bPixelArt) PixelSampler(dl, false);
+        }
+        else
+            dl->AddRect(ImVec2(s0.x + dp(10), s0.y + dp(10)), ImVec2(s1.x - dp(10), s1.y - dp(10)), Col(role::OutlineVariant), shape::ExtraSmall, dp(2));
+
+        const float ty = cy - (type::BodyLarge + (supporting ? dp(2) + supH : 0.f)) * 0.5f;
+        Text(dl, type::BodyLarge, ImVec2(bb.Min.x + textX, ty), Col(role::OnSurface), headline);
+        if (supporting)
+            Text(dl, type::BodyMedium, ImVec2(bb.Min.x + textX, ty + type::BodyLarge + dp(2)), Col(role::OnSurfaceVariant), supporting, textW);
+        if (!bClose) return false;
+
+        // Кнопка-иконка "убрать": слой состояния 40 dp, иконка 24 dp, зона нажатия 48 dp
+        const ImGuiID id = win->GetID(headline) ^ 0xC105Eu;
+        const ImVec2  cc(bb.Max.x - dp(12 + 20), cy);
+        const ImRect  hit(ImVec2(cc.x - dp(24), cc.y - dp(24)), ImVec2(cc.x + dp(24), cc.y + dp(24)));
+        ImGui::ItemAdd(hit, id);
+        bool bHovered = false, bHeld = false;
+        const bool     bPressed = ImGui::ButtonBehavior(hit, id, &bHovered, &bHeld, ImGuiButtonFlags_PressedOnClick);
+        const SRowAnim a        = RowAnim(id, bHovered, bHeld);
+        if (Layer(a) > 0.002f)
+            dl->AddCircleFilled(cc, dp(20), Col(Mix(role::SurfaceContainerHigh, role::OnSurfaceVariant, Layer(a))), 40);
+        Icon(dl, EIcon::Close, cc, dp(24), Col(role::OnSurfaceVariant));
+        return bPressed;
     }
 }

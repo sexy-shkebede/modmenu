@@ -10,6 +10,7 @@
 #include "menu/menu.hpp"
 #include "menu/settings.hpp"
 #include "mods/mods.hpp"
+#include "mods/minecraft.hpp"
 
 #define LOG_TAG "shkbd"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  LOG_TAG, __VA_ARGS__)
@@ -39,11 +40,13 @@ static void* InitThread(void*)
     }
 
     // Хендл не закрываем: загрузчик не должен выгрузиться, пока на нём стоит хук.
-    g_Hook.m_pfnSetupMenu = menu::Setup;
-    g_Hook.m_pfnDrawMenu  = menu::Draw;
-    g_Hook.m_pfnMainThreadTick = mods::Tick;
+    g_Hook.m_pfnSetupMenu      = menu::Setup;
+    g_Hook.m_pfnDrawMenu       = menu::Draw;
+    g_Hook.m_pfnMainThreadTick = mods::Tick;            // всё, что трогает объекты Unity
     g_Hook.m_pfnMenuScale      = settings::PanelScale;
-    g_Hook.m_pfnDrawSprites    = menu::DrawSprites;   // Fly и прочее, что трогает объекты Unity
+    g_Hook.m_pfnDrawSprites    = menu::DrawSprites;
+    g_Hook.m_pfnWorldActive    = minecraft::WorldActive;  // блоки Minecraft — слоем мира
+    g_Hook.m_pfnDrawWorld      = minecraft::DrawWorld;
 
     if (g_Hook.Initialize(hLoader)) LOGI("OpenXR hook installed");
     else                            LOGE("OpenXR hook FAILED: xrGetInstanceProcAddr not found or DobbyHook error");

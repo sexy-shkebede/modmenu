@@ -221,6 +221,8 @@ void COpenXRHook::OnCreateSession(XrInstance instance, const XrSessionCreateInfo
         }
 
     m_Renderer.Bind(session, pBinding, api, cfg::kPanelResX, cfg::kPanelResY + cfg::kSpriteStripH);
+    // Слой мира: глаза рядом, левый и правый. Не поднялся — меню работает и без него.
+    m_WorldRenderer.Bind(session, pBinding, api, cfg::kWorldEyeRes * 2, cfg::kWorldEyeRes);
 }
 
 void COpenXRHook::OnCreateActionSpace(const XrActionSpaceCreateInfo* pInfo, XrSpace space)
@@ -353,17 +355,10 @@ const XrFrameEndInfo* COpenXRHook::OnEndFrame(XrSession session, const XrFrameEn
     const bool bMenu  = m_fOpen > 0.002f;
     const bool bBeam  = m_bBeamActive.load(std::memory_order_relaxed) &&
                         uNow - m_uBeamStampNs.load(std::memory_order_relaxed) < 250000000ull;
+    const bool bWorld = m_WorldRenderer.IsReady() && m_pfnDrawWorld && m_pfnWorldActive && m_pfnWorldActive();
 
-    // Шары платформ: появляются с "поп"-анимацией и так же сжимаются, когда руку отпустили
-    const bool bBallFresh = uNow - m_uBallStampNs.load(std::memory_order_relaxed) < 250000000ull;
-    const bool abBallOn[2] = { bBallFresh && m_bBallLeft.load(std::memory_order_relaxed),
-                               bBallFresh && m_bBallRight.load(std::memory_order_relaxed) };
-    for (int i = 0; i < 2; i++)
-        m_afBallScale[i] += ((abBallOn[i] ? 1.f : 0.f) - m_afBallScale[i]) * (1.f - expf(-(abBallOn[i] ? 22.f : 30.f) * fDt));
-    const bool bBalls = abBallOn[0] || abBallOn[1] || m_afBallScale[0] > 0.01f || m_afBallScale[1] > 0.01f;
-
-    // Ни меню, ни луча, ни шаров (или хук ещё не готов) — кадр игры уходит без единого изменения.
-    if (!bReady || (!bMenu && !bBeam && !bBalls))
+    // Ни меню, ни луча, ни блоков (или хук ещё не готов) — кадр игры уходит без единого изменения.
+    if (!bReady || (!bMenu && !bBeam && !bWorld))
     {
         ReleasePointer();
         return pInfo;
@@ -397,25 +392,76 @@ const XrFrameEndInfo* COpenXRHook::OnEndFrame(XrSession session, const XrFrameEn
     if (bPanel) UpdatePointer(m_MenuPose, size, pInfo->displayTime, fDt);
     else        ReleasePointer();
 
-    // Пока луч руки на меню, луч спавна не показываем
-    const bool bShowBeam = bBeam && !m_bPointerOnMenu.load(std::memory_order_relaxed);
-    m_bDrawSprites = bShowBeam || bBalls;
-    const float fVisibility = bPanel ? (m_fOpen < 1.f ? m_fOpen : 1.f) : 0.f;
-    if (!m_Renderer.RenderFrame(pInfo->displayTime, &COpenXRHook::DrawFrame, fVisibility))
-        return pInfo;
-
-    // Слои: луч и шары под панелью, панель последней
+    // Слои: блоки сразу над сценой игры, над ними луч, панель последней
     const XrCompositionLayerBaseHeader* apLayers[8];
     uint32_t n = 0;
-    if (bShowBeam) n += (uint32_t)BuildBeamLayers(pInfo->displayTime, apLayers + n);
-    if (bBalls)    n += (uint32_t)BuildBallLayers(pInfo->displayTime, apLayers + n);
-    if (bPanel)
+    if (bWorld)
+        if (const XrCompositionLayerBaseHeader* pWorld = BuildWorldLayer(pInfo))
+            apLayers[n++] = pWorld;
+
+    // Пока луч руки на меню, луч спавна не показываем
+    const bool bShowBeam = bBeam && !m_bPointerOnMenu.load(std::memory_order_relaxed);
+    m_bDrawSprites = bShowBeam;
+    const float fVisibility = bPanel ? (m_fOpen < 1.f ? m_fOpen : 1.f) : 0.f;
+    if ((bPanel || bShowBeam) && m_Renderer.RenderFrame(pInfo->displayTime, &COpenXRHook::DrawFrame, fVisibility))
     {
-        static constexpr int kPanelRect[4] = { 0, 0, cfg::kPanelResX, cfg::kPanelResY };
-        apLayers[n++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
-            m_Renderer.BuildQuadLayer(&m_QuadLayer, m_WorldSpace, size, m_MenuPose, kPanelRect));
+        if (bShowBeam) n += (uint32_t)BuildBeamLayers(pInfo->displayTime, apLayers + n);
+        if (bPanel)
+        {
+            static constexpr int kPanelRect[4] = { 0, 0, cfg::kPanelResX, cfg::kPanelResY };
+            apLayers[n++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(
+                m_Renderer.BuildQuadLayer(&m_QuadLayer, m_WorldSpace, size, m_MenuPose, kPanelRect));
+        }
     }
     return n ? m_Composition.BuildEndInfo(pInfo, apLayers, n) : pInfo;
+}
+
+const XrCompositionLayerBaseHeader* COpenXRHook::BuildWorldLayer(const XrFrameEndInfo* pInfo)
+{
+    // Позы и поле зрения глаз — ровно те, с которыми игра отрисовала этот кадр, в её же
+    // пространстве: блоки совпадают с картинкой игры, и рантайм перепроецирует их вместе.
+    const XrCompositionLayerProjection* pGame = nullptr;
+    for (uint32_t i = 0; i < pInfo->layerCount && pInfo->layers && !pGame; i++)
+        if (pInfo->layers[i] && pInfo->layers[i]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION)
+            pGame = reinterpret_cast<const XrCompositionLayerProjection*>(pInfo->layers[i]);
+    if (!pGame || !pGame->views || pGame->viewCount == 0) return nullptr;
+
+    const uint32_t nViews = pGame->viewCount < 2 ? pGame->viewCount : 2;
+    const int      iRes   = cfg::kWorldEyeRes;
+    for (uint32_t i = 0; i < nViews; i++)
+    {
+        const XrCompositionLayerProjectionView& v = pGame->views[i];
+        SWorldEye& e = m_aWorldEyes[i];
+        e = { { v.pose.position.x, v.pose.position.y, v.pose.position.z },
+              { v.pose.orientation.x, v.pose.orientation.y, v.pose.orientation.z, v.pose.orientation.w },
+              tanf(v.fov.angleLeft), tanf(v.fov.angleRight), tanf(v.fov.angleUp), tanf(v.fov.angleDown),
+              (float)(iRes * (int)i), 0.f, (float)iRes, (float)iRes };
+
+        XrCompositionLayerProjectionView& out = m_aWorldViews[i];
+        out = { XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW };
+        out.pose                     = v.pose;
+        out.fov                      = v.fov;
+        out.subImage.swapchain       = m_WorldRenderer.GetSwapchain();
+        out.subImage.imageRect       = { { iRes * (int32_t)i, 0 }, { iRes, iRes } };
+        out.subImage.imageArrayIndex = 0;
+    }
+    m_nWorldEyes = (int)nViews;
+
+    m_WorldRenderer.InitializeImGui(nullptr);
+    if (!m_WorldRenderer.RenderFrame(pInfo->displayTime, &COpenXRHook::DrawWorldFrame, 1.f)) return nullptr;
+
+    m_WorldLayer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };
+    m_WorldLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;   // альфа ImGui уже премультиплицирована
+    m_WorldLayer.space      = pGame->space;
+    m_WorldLayer.viewCount  = nViews;
+    m_WorldLayer.views      = m_aWorldViews;
+    return reinterpret_cast<const XrCompositionLayerBaseHeader*>(&m_WorldLayer);
+}
+
+void COpenXRHook::DrawWorldFrame(float)
+{
+    COpenXRHook* p = g_pOpenXRHook;
+    if (p && p->m_pfnDrawWorld) p->m_pfnDrawWorld(p->m_aWorldEyes, p->m_nWorldEyes);
 }
 
 // ============================================================================
@@ -563,34 +609,5 @@ int COpenXRHook::BuildBeamLayers(XrTime time, const XrCompositionLayerBaseHeader
     const float fLabelH = fLabelW * (float)cfg::kLabelSprite[3] / (float)cfg::kLabelSprite[2];
     const XrPosef labelPose = { q, Add(at, Mul(up, fSize * 0.6f + fLabelH * 0.5f)) };
     ppOut[n++] = Header(m_Renderer.BuildQuadLayer(&m_aBeamLayers[2], m_WorldSpace, { fLabelW, fLabelH }, labelPose, cfg::kLabelSprite));
-    return n;
-}
-
-void COpenXRHook::SetGrabBalls(bool bLeft, bool bRight)
-{
-    m_bBallLeft.store(bLeft, std::memory_order_relaxed);
-    m_bBallRight.store(bRight, std::memory_order_relaxed);
-    m_uBallStampNs.store(NowNs(), std::memory_order_relaxed);
-}
-
-int COpenXRHook::BuildBallLayers(XrTime time, const XrCompositionLayerBaseHeader** ppOut)
-{
-    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
-    if (m_ViewSpace == XR_NULL_HANDLE || m_pfnLocateSpace(m_ViewSpace, m_WorldSpace, time, &head) != XR_SUCCESS ||
-        !(head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT))
-        return 0;
-
-    // Шар — на ладони (grip) этого кадра. Мод держит руку на месте в мире игры,
-    // поэтому шар вместе с рукой выглядит застрявшим в воздухе.
-    int n = 0;
-    for (int i = 0; i < 2; i++)
-    {
-        XrPosef grip;
-        if (m_afBallScale[i] <= 0.01f || !LocateHand(i ? m_aRightSpaces : m_aLeftSpaces, false, time, grip)) continue;
-        XrVector3f          up;
-        const XrQuaternionf q    = Billboard(grip.position, head.pose.position, up);
-        const float         size = cfg::kGrabBallM * m_afBallScale[i];
-        ppOut[n++] = Header(m_Renderer.BuildQuadLayer(&m_aBallLayers[i], m_WorldSpace, { size, size }, { q, grip.position }, cfg::kBallSprite));
-    }
     return n;
 }

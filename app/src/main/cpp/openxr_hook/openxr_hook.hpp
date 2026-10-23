@@ -7,9 +7,10 @@
 #include "renderer/openxr_renderer.hpp"
 #include "xr_input.hpp"
 #include "xr_composition.hpp"
+#include "world_view.hpp"
 
-// Перехват OpenXR игры: в кадр добавляется один quad-слой с ImGui-меню, привязанный
-// к левому контроллеру; луч с правого контроллера работает как мышь.
+// Перехват OpenXR игры: в кадр добавляется quad-слой с ImGui-меню, привязанный
+// к левому контроллеру (луч с правого контроллера работает как мышь), и стерео-слой мира.
 class COpenXRHook
 {
 public:
@@ -18,9 +19,14 @@ public:
 
     void (*m_pfnSetupMenu)()                 = nullptr;   // один раз: шрифт и стиль ImGui
     void (*m_pfnDrawMenu)(float fVisibility) = nullptr;   // каждый кадр, пока меню видно
-    void (*m_pfnMainThreadTick)(float fDt)   = nullptr;
+    void (*m_pfnMainThreadTick)(float fDt)   = nullptr;   // главный поток игры (UnityMain), каждая синхронизация ввода
     float (*m_pfnMenuScale)()                = nullptr;   // множитель размера панели (настройки меню)
-    void (*m_pfnDrawSprites)()               = nullptr;   // картинки луча спавна (полоса под панелью)   // главный поток игры (UnityMain), каждая синхронизация ввода
+    void (*m_pfnDrawSprites)()               = nullptr;   // картинки луча спавна (полоса под панелью)
+
+    // Слой мира: стерео-слой поверх сцены игры, в её пространстве и с её позами глаз.
+    // Рисует ImGui (свой контекст и swapchain); каждый глаз — в свой участок текстуры.
+    bool (*m_pfnWorldActive)()                                 = nullptr;   // нужен ли слой в этом кадре
+    void (*m_pfnDrawWorld)(const SWorldEye* aEyes, int nEyes)  = nullptr;
 
     bool IsMenuOpen() const { return m_bMenuOpen; }
 
@@ -28,9 +34,6 @@ public:
     // bAim — поза луча (aim), иначе ладони (grip). false — поз пока нет.
     bool GetHandInHead(bool bRight, bool bAim, XrVector3f& outDir, XrVector3f* pOutPos = nullptr);
     bool GetRightAimInHead(XrVector3f& outDir, XrVector3f* pOutPos = nullptr) { return GetHandInHead(true, true, outDir, pOutPos); }
-
-    // Шары платформ на руках (обновляет главный поток каждый тик)
-    void SetGrabBalls(bool bLeft, bool bRight);
 
     // Луч спавна (обновляет главный поток каждый тик): bActive — показывать; fHitM — расстояние
     // до попадания от точки в 5 см перед рукой, в метрах; < 0 — ни во что не попал.
@@ -55,14 +58,21 @@ private:
     void UpdatePointer (const XrPosef& quadPose, XrExtent2Df size, XrTime time, float fDt);
     void ReleasePointer();
     int  BuildBeamLayers(XrTime time, const XrCompositionLayerBaseHeader** ppOut);
-    int  BuildBallLayers(XrTime time, const XrCompositionLayerBaseHeader** ppOut);
+    const XrCompositionLayerBaseHeader* BuildWorldLayer(const XrFrameEndInfo* pInfo);
     static void DrawFrame(float fVisibility);   // меню (если видно) + спрайты луча (если он включён)
+    static void DrawWorldFrame(float);
 
     COpenXRRenderer        m_Renderer;
     COpenXRComposition     m_Composition;
     XrCompositionLayerQuad m_QuadLayer = {};
     XrCompositionLayerQuad m_aBeamLayers[3] = {};   // луч, прицел, подпись
-    XrCompositionLayerQuad m_aBallLayers[2] = {};   // шары платформ: левая, правая
+
+    // слой мира
+    COpenXRRenderer                  m_WorldRenderer;
+    XrCompositionLayerProjection     m_WorldLayer     = {};
+    XrCompositionLayerProjectionView m_aWorldViews[2] = {};
+    SWorldEye                        m_aWorldEyes[2]  = {};
+    int                              m_nWorldEyes     = 0;
 
     PFN_xrStringToPath         m_pfnStringToPath         = nullptr;
     PFN_xrCreateReferenceSpace m_pfnCreateReferenceSpace = nullptr;
@@ -97,12 +107,6 @@ private:
     std::atomic<float>    m_fBeamHitM    { -1.f };
     std::atomic<uint64_t> m_uBeamStampNs { 0 };
     bool                  m_bDrawSprites = false;
-
-    // шары платформ
-    std::atomic<bool>     m_bBallLeft    { false };
-    std::atomic<bool>     m_bBallRight   { false };
-    std::atomic<uint64_t> m_uBallStampNs { 0 };
-    float                 m_afBallScale[2] = { 0.f, 0.f };   // анимация появления, 0..1
 };
 
 extern COpenXRHook* g_pOpenXRHook;

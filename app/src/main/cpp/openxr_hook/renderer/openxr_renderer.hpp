@@ -19,12 +19,13 @@ struct SXrSwapchainApi
     bool IsValid() const { return pfnCreate && pfnEnumerateImages && pfnAcquire && pfnWait && pfnRelease; }
 };
 
-// Один quad-слой меню: swapchain + графический бэкенд + свой ImGui-контекст.
+// Swapchain + графический бэкенд + свой ImGui-контекст: панель меню или слой мира.
 class COpenXRRenderer
 {
 public:
     bool Bind(XrSession session, const XrBaseInStructure* pBinding, const SXrSwapchainApi& api, int iWidth, int iHeight);
     bool IsReady() const { return m_pBackend != nullptr && m_Swapchain != XR_NULL_HANDLE; }
+    XrSwapchain GetSwapchain() const { return m_Swapchain; }
 
     void          InitializeImGui(void (*pfnSetup)());
     ImGuiContext* GetImGuiContext() const { return m_pCtx; }

@@ -5,7 +5,7 @@
 #include "settings.hpp"
 #include "theme.hpp"
 #include "../config.hpp"
-#include "../mods/photon.hpp"
+#include "../mods/minecraft.hpp"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -238,7 +238,7 @@ namespace
 void menu::Setup()
 {
     LoadFont();
-    settings::Load();   // тема, анимации, размер панели, скорость полёта
+    settings::Load();   // тема, анимации, размер панели, настройки блоков
 
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding    = ImVec2(0.f, 0.f);
@@ -307,25 +307,10 @@ void menu::DrawSprites()
         fg->AddCircleFilled(c, 8.f, Col(role::OnSurface), 24);
     }
 
-    // Шар платформы: ImGui-круги в цветах темы, будто рука застряла в полупрозрачной сфере
+    // Подпись: какой блок в руке — плашка inverse surface, как tooltip в M3
     {
-        const ImVec2 c((float)cfg::kBallSprite[0] + (float)cfg::kBallSprite[2] * 0.5f,
-                       (float)cfg::kBallSprite[1] + (float)cfg::kBallSprite[3] * 0.5f);
-        const float  R = 58.f;
-        fg->AddCircleFilled(c, R, Col(role::PrimaryContainer, 0.45f), 64);
-        for (int i = 1; i <= 6; i++)   // объём: светлеющие круги, смещённые к блику
-        {
-            const float t = (float)i / 6.f;
-            fg->AddCircleFilled(ImVec2(c.x - 14.f * t, c.y - 16.f * t), R * (1.f - 0.75f * t), Col(role::Primary, 0.10f), 48);
-        }
-        fg->AddCircle(c, R - 2.f, Col(role::Primary, 0.9f), 64, 4.f);
-        fg->AddCircleFilled(ImVec2(c.x - 22.f, c.y - 24.f), 9.f, Col(0xFFFFFF, 0.55f), 24);
-    }
-
-    // Подпись: что заспавнится — плашка inverse surface, как tooltip в M3
-    {
-        const std::string sItem = photon::GetArmedItem().sName;
-        const char*       psz   = strrchr(sItem.c_str(), '/') ? strrchr(sItem.c_str(), '/') + 1 : sItem.c_str();
+        const std::string sItem = minecraft::BeamLabel();
+        const char*       psz   = sItem.c_str();
         const float  x = (float)cfg::kLabelSprite[0], y = (float)cfg::kLabelSprite[1];
         const float  w = (float)cfg::kLabelSprite[2], h = (float)cfg::kLabelSprite[3];
         const ImVec2 ts = TextSize(type::TitleLarge, psz);

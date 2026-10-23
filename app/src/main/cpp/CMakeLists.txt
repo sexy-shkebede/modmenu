@@ -28,8 +28,11 @@ add_library(openxrhooktest SHARED
     menu/theme.cpp
     menu/ui.cpp
 
+    minecraft/blocks.cpp
+    minecraft/draw.cpp
+
     mods/mods.cpp
-    mods/movement.cpp
+    mods/minecraft.cpp
     mods/il2cpp_util.cpp
     mods/photon.cpp
     mods/unity_bridge.cpp
