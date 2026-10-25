@@ -4,10 +4,11 @@
 #include <string.h>
 #include <zlib.h>
 
-namespace
+static_assert(sizeof(fly::SConnectome::SHeader) == 24, "header layout");
+
+bool fly::SConnectome::HeaderOk(const SHeader& h)
 {
-    struct SHeader { char magic[4]; uint32_t uVersion, N, M, uFlags, uSize; };
-    static_assert(sizeof(SHeader) == 24, "header layout");
+    return memcmp(h.magic, "FLY1", 4) == 0 && h.uVersion == 1 && h.N > 0 && h.N < (1u << 18);
 }
 
 const std::vector<uint32_t>* fly::SConnectome::Group(const char* pszName) const
@@ -26,7 +27,7 @@ bool fly::SConnectome::Load(const char* pszPath, std::string& sError, volatile f
     fseek(f, 0, SEEK_SET);
 
     SHeader h {};
-    if (fread(&h, sizeof(h), 1, f) != 1 || memcmp(h.magic, "FLY1", 4) != 0 || h.uVersion != 1 || h.N == 0 || h.N >= (1u << 18))
+    if (fread(&h, sizeof(h), 1, f) != 1 || !HeaderOk(h))
     {
         fclose(f);
         sError = "not a fly_brain.bin (version 1)";
@@ -64,7 +65,58 @@ bool fly::SConnectome::Load(const char* pszPath, std::string& sError, volatile f
     }
     fclose(f);
     if (!bOk) { sError = "file is damaged or incomplete"; m_Data.clear(); return false; }
+    return Parse(pOut, h, sError, pProgress);
+}
 
+bool fly::SConnectome::LoadMemory(const void* pData, size_t nBytes, std::string& sError, volatile float* pProgress)
+{
+    const unsigned char* p = static_cast<const unsigned char*>(pData);
+    SHeader h {};
+    if (nBytes < sizeof(h)) { sError = "not a fly_brain.bin (version 1)"; return false; }
+    memcpy(&h, p, sizeof(h));
+    if (!HeaderOk(h)) { sError = "not a fly_brain.bin (version 1)"; return false; }
+    const unsigned char* pBody = p + sizeof(h);
+    const size_t         nBody = nBytes - sizeof(h);
+
+    if (!(h.uFlags & 1))
+    {
+        // Без сжатия и выровнено по 4 — читаем прямо отсюда, без копии в куче
+        if (nBody < h.uSize) { sError = "data is truncated"; return false; }
+        if (((uintptr_t)pBody & 3u) == 0) { m_Data.clear(); return Parse(pBody, h, sError, pProgress); }
+        m_Data.assign((h.uSize + 3) / 4, 0u);
+        memcpy(m_Data.data(), pBody, h.uSize);
+        return Parse(reinterpret_cast<const unsigned char*>(m_Data.data()), h, sError, pProgress);
+    }
+
+    m_Data.assign((h.uSize + 3) / 4, 0u);
+    z_stream z {};
+    bool bOk = inflateInit(&z) == Z_OK;
+    z.next_out  = reinterpret_cast<unsigned char*>(m_Data.data());
+    z.avail_out = h.uSize;
+    size_t off = 0;
+    int    r   = Z_OK;
+    while (bOk && r != Z_STREAM_END && off < nBody)
+    {
+        // кусками по 1 МБ — ради полоски прогресса
+        const size_t n = nBody - off < ((size_t)1 << 20) ? nBody - off : ((size_t)1 << 20);
+        z.next_in  = const_cast<unsigned char*>(pBody + off);
+        z.avail_in = (uInt)n;
+        while (z.avail_in > 0 && r != Z_STREAM_END)
+        {
+            r = inflate(&z, Z_NO_FLUSH);
+            if (r != Z_OK && r != Z_STREAM_END) { bOk = false; break; }
+        }
+        off += n - z.avail_in;
+        if (pProgress) *pProgress = 0.95f * (float)off / (float)nBody;
+    }
+    bOk = bOk && z.total_out == h.uSize;
+    inflateEnd(&z);
+    if (!bOk) { sError = "data is damaged or incomplete"; m_Data.clear(); return false; }
+    return Parse(reinterpret_cast<const unsigned char*>(m_Data.data()), h, sError, pProgress);
+}
+
+bool fly::SConnectome::Parse(const unsigned char* pOut, const SHeader& h, std::string& sError, volatile float* pProgress)
+{
     // Разметка: cptr, syn, pos, super, группы
     const size_t nCptr = (size_t)h.N + 1, nSyn = h.M;
     size_t off = 0;

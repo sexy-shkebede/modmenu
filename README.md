@@ -16,21 +16,30 @@ ImGui-меню для VR-игр на Meta Quest. Встраивается пря
 1. Android Studio → открыть корень проекта → Gradle Sync → Build. Нужны NDK 27.2.12479018 и CMake 3.22.1
    (ставятся через SDK Manager), ABI — только arm64-v8a. На выходе — `libopenxrhooktest.so`
    (в APK: `lib/arm64-v8a/`). Загрузка через `System.loadLibrary("openxrhooktest")` в smali прежняя.
-2. Коннектом в APK не входит (данные FlyWire, ~50 МБ). Собрать его один раз на ПК:
+2. Коннектом собирается один раз на ПК из данных FlyWire (в репозиторий он не входит). В корне проекта:
 
        pip install pandas pyarrow numpy
-       python tools/fly/make_brain.py --download
+       python tools/fly/make_brain.py --download --raw
 
    Скрипт скачивает закреплённые версии первоисточников, проверяет их контрольные суммы (они те же, что в
    `fly-connectome/setup/get_data.py`) и пишет `fly_brain.bin`. Если данные fly-connectome уже скачаны,
    можно указать папку с ними: `--src <папка>`.
-3. Положить файл на шлем:
+3. Дальше — один из двух вариантов:
+   - **Внутри библиотеки (проще).** `fly_brain.bin` лежит в корне проекта — CMake сам вшивает его в
+     `libopenxrhooktest.so` (в логе сборки: `fly: building ... into the library`; другой путь —
+     `-DFLY_BRAIN_BIN=...`). Библиотека — ~62 МБ, на шлем больше ничего класть не нужно. Файл без сжатия
+     (`--raw`) читается прямо из библиотеки: мозг готов мгновенно и не занимает лишних ~60 МБ в куче.
+     Сжатый (без `--raw`, ~50 МБ) тоже вшивается, но распаковывается в память при загрузке. Положил файл
+     после первой сборки — Build → Refresh Linked C++ Projects, чтобы CMake его заметил.
+   - **Файлом на шлеме.** Если файла в корне нет, библиотека остаётся ~1 МБ, а мозг мод ищет на шлеме:
 
-       adb push fly_brain.bin /sdcard/Android/obb/<пакет игры>/
+         adb push fly_brain.bin /sdcard/Android/obb/<пакет игры>/
 
-   Ещё мод ищет файл в `/sdcard/Android/data/<пакет>/files/`, `/data/data/<пакет>/files/`,
-   `/sdcard/Download/` и `/sdcard/`. Нужная команда с именем пакета показывается на странице Fly, если
-   файл не нашёлся. Мозг загружается, когда страница Fly открывается в первый раз (пара секунд, ~75 МБ памяти).
+     Ещё — в `/sdcard/Android/data/<пакет>/files/`, `/data/data/<пакет>/files/`, `/sdcard/Download/` и
+     `/sdcard/`. Нужная команда с именем пакета показывается на странице Fly, если файл не нашёлся.
+     Здесь сжатый файл (без `--raw`) меньше, загрузка — пара секунд и ~75 МБ памяти.
+
+   Мозг загружается, когда страница Fly открывается в первый раз.
 
 ## Управление
 
@@ -152,7 +161,8 @@ ImGui-меню для VR-игр на Meta Quest. Встраивается пря
       imgui_config.hpp   сборка ImGui: без debug-инструментов, 32-битные индексы, assert в logcat
       native-lib.cpp     точка входа (JNI_OnLoad): ставит хук на libopenxr_loader.so
       fly/
-        connectome.cpp   чтение fly_brain.bin
+        connectome.cpp   чтение fly_brain.bin (из файла или вшитого в библиотеку)
+        brain_blob.cpp   fly_brain.bin внутри .so (.incbin), если CMake нашёл файл
         brain.cpp        LIF-модель Shiu et al., событийный счёт
         sim.cpp          поток мозга: загрузка, темп реального времени, входы и выходы
         body.cpp         тело: шаги, чистка, хоботок, крылья

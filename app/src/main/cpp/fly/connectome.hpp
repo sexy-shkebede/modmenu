@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -12,7 +13,7 @@ namespace fly
     struct SConnectome
     {
         SConnectome() = default;
-        SConnectome(const SConnectome&) = delete;              // указатели смотрят внутрь своих данных
+        SConnectome(const SConnectome&) = delete;              // указатели смотрят в свои (или вшитые) данные
         SConnectome& operator=(const SConnectome&) = delete;
 
         uint32_t        N = 0, M = 0;          // нейронов, связей
@@ -30,8 +31,16 @@ namespace fly
 
         // pProgress (0..1) обновляется по ходу чтения — для меню; вызывать из фонового потока
         bool Load(const char* pszPath, std::string& sError, volatile float* pProgress = nullptr);
+        // Содержимое fly_brain.bin в памяти (вшитое в библиотеку). Без сжатия — без копии:
+        // память должна жить, пока жив коннектом
+        bool LoadMemory(const void* pData, size_t nBytes, std::string& sError, volatile float* pProgress = nullptr);
+
+        struct SHeader { char magic[4]; uint32_t uVersion, N, M, uFlags, uSize; };
 
     private:
-        std::vector<uint32_t> m_Data;          // распакованное содержимое (выровнено по 4 байта)
+        static bool HeaderOk(const SHeader& h);
+        bool Parse(const unsigned char* pData, const SHeader& h, std::string& sError, volatile float* pProgress);
+
+        std::vector<uint32_t> m_Data;          // распакованное содержимое (выровнено по 4 байта); пусто — читаем вшитое
     };
 }

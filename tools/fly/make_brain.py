@@ -9,7 +9,9 @@
 (например, brain_model/ и data/ из репозитория fly-connectome: файлы ищутся и там, и там).
 Источники и контрольные суммы — те же, что в fly-connectome/setup/get_data.py.
 
-Результат (~50 МБ) кладётся на шлем: adb push fly_brain.bin /sdcard/Android/obb/<пакет игры>/
+Результат (~50 МБ, с --raw без сжатия ~62 МБ) либо оставить в корне проекта — CMake вошьёт его в
+libopenxrhooktest.so (без сжатия он читается прямо из библиотеки, без распаковки в память), либо
+положить на шлем: adb push fly_brain.bin /sdcard/Android/obb/<пакет игры>/
 (или в /sdcard/Android/data/<пакет игры>/files/). Формат — в конце файла.
 
 Группы входов и выходов — ровно как в fly-connectome/tiktok/senses.py (SENSES и READOUTS).

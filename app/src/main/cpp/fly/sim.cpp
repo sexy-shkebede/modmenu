@@ -1,5 +1,6 @@
 #include "sim.hpp"
 #include "brain.hpp"
+#include "brain_blob.hpp"
 
 #include <condition_variable>
 #include <mutex>
@@ -40,11 +41,23 @@ namespace
 
     void Thread()
     {
-        // ---- загрузка
+        // ---- загрузка: вшитый в библиотеку мозг, иначе файл на шлеме
         std::string sUsed, sErr = "fly_brain.bin not found";
         bool bOk = false;
-        for (const std::string& p : g_Paths)
+#ifdef FLY_BRAIN_EMBEDDED
         {
+            std::string e;
+            {
+                std::lock_guard<std::mutex> l(S.lock);
+                S.info.sPath = "built into the library";
+            }
+            if (g_Conn.LoadMemory(g_FlyBrainBin, (size_t)(g_FlyBrainBinEnd - g_FlyBrainBin), e, &S.info.fProgress)) { bOk = true; sUsed = "built into the library"; }
+            else sErr = "built-in fly_brain.bin: " + e;
+        }
+#endif
+        for (size_t i = 0; i < g_Paths.size() && !bOk; i++)
+        {
+            const std::string& p = g_Paths[i];
             std::string e;
             {
                 std::lock_guard<std::mutex> l(S.lock);
