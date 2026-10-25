@@ -28,13 +28,16 @@ add_library(openxrhooktest SHARED
     menu/theme.cpp
     menu/ui.cpp
 
-    minecraft/blocks.cpp
-    minecraft/draw.cpp
+    fly/connectome.cpp
+    fly/brain.cpp
+    fly/sim.cpp
+    fly/body.cpp
+    fly/draw.cpp
+    fly/brainview.cpp
 
     mods/mods.cpp
-    mods/minecraft.cpp
+    mods/fly.cpp
     mods/il2cpp_util.cpp
-    mods/photon.cpp
     mods/unity_bridge.cpp
 
     openxr_hook/openxr_hook.cpp
@@ -71,4 +74,5 @@ target_compile_definitions(openxrhooktest PRIVATE IMGUI_USER_CONFIG="imgui_confi
 target_compile_options(openxrhooktest PRIVATE -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
 target_link_options(openxrhooktest PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 
-target_link_libraries(openxrhooktest log vulkan EGL GLESv3 dobby)
+# z — распаковка fly_brain.bin (zlib есть в любой прошивке Android)
+target_link_libraries(openxrhooktest log vulkan EGL GLESv3 z dobby)

@@ -17,18 +17,10 @@ namespace ubridge
     // camPos — где сейчас камера. fScale — масштаб игрока (единиц мира в метре трекинга).
     bool GetRig(Vector3& outPos, Quaternion& outRot, float& outScale, Vector3& outCamPos);
 
-    // Physics.Raycast в мировых координатах игры (без триггеров и слоя Ignore Raycast).
-    // bLayer — узнать слой объекта, в который попали (iLayer, иначе -1).
-    struct SHit { Vector3 point; Vector3 normal; float fDistance; int iLayer; };
-    bool Raycast(Vector3 origin, Vector3 dir, float fMaxDistance, SHit& out, bool bLayer = false);
+    // Physics.Raycast в мировых координатах игры (без триггеров и слоя Ignore Raycast)
+    struct SHit { Vector3 point; Vector3 normal; float fDistance; };
+    bool Raycast(Vector3 origin, Vector3 dir, float fMaxDistance, SHit& out);
 
     // Масштаб игрока: сколько единиц мира Unity в одном метре трекинга (обычно 1)
     float WorldScale();
-
-    // Невидимый куб-коллайдер (GameObject + BoxCollider) — на нём можно стоять и за него
-    // хвататься. Есть только у тебя. Возвращает GC-handle объекта, 0 — не вышло.
-    bool     CanCreateColliders();
-    uint32_t CreateBoxCollider(Vector3 center, float fSize, int iLayer);
-    bool     IsAlive(uint32_t hObject);          // false — объект уничтожен (например, сменилась сцена)
-    void     DestroyObject(uint32_t hObject);    // Object.Destroy и освобождение handle
 }

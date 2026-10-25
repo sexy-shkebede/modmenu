@@ -357,7 +357,7 @@ const XrFrameEndInfo* COpenXRHook::OnEndFrame(XrSession session, const XrFrameEn
                         uNow - m_uBeamStampNs.load(std::memory_order_relaxed) < 250000000ull;
     const bool bWorld = m_WorldRenderer.IsReady() && m_pfnDrawWorld && m_pfnWorldActive && m_pfnWorldActive();
 
-    // Ни меню, ни луча, ни блоков (или хук ещё не готов) — кадр игры уходит без единого изменения.
+    // Ни меню, ни луча, ни мухи (или хук ещё не готов) — кадр игры уходит без единого изменения.
     if (!bReady || (!bMenu && !bBeam && !bWorld))
     {
         ReleasePointer();
@@ -392,7 +392,7 @@ const XrFrameEndInfo* COpenXRHook::OnEndFrame(XrSession session, const XrFrameEn
     if (bPanel) UpdatePointer(m_MenuPose, size, pInfo->displayTime, fDt);
     else        ReleasePointer();
 
-    // Слои: блоки сразу над сценой игры, над ними луч, панель последней
+    // Слои: муха сразу над сценой игры, над ними луч, панель последней
     const XrCompositionLayerBaseHeader* apLayers[8];
     uint32_t n = 0;
     if (bWorld)
@@ -419,7 +419,7 @@ const XrFrameEndInfo* COpenXRHook::OnEndFrame(XrSession session, const XrFrameEn
 const XrCompositionLayerBaseHeader* COpenXRHook::BuildWorldLayer(const XrFrameEndInfo* pInfo)
 {
     // Позы и поле зрения глаз — ровно те, с которыми игра отрисовала этот кадр, в её же
-    // пространстве: блоки совпадают с картинкой игры, и рантайм перепроецирует их вместе.
+    // пространстве: муха совпадает с картинкой игры, и рантайм перепроецирует их вместе.
     const XrCompositionLayerProjection* pGame = nullptr;
     for (uint32_t i = 0; i < pInfo->layerCount && pInfo->layers && !pGame; i++)
         if (pInfo->layers[i] && pInfo->layers[i]->type == XR_TYPE_COMPOSITION_LAYER_PROJECTION)
@@ -447,7 +447,7 @@ const XrCompositionLayerBaseHeader* COpenXRHook::BuildWorldLayer(const XrFrameEn
     }
     m_nWorldEyes = (int)nViews;
 
-    m_WorldRenderer.InitializeImGui(nullptr);
+    m_WorldRenderer.InitializeImGui(m_pfnSetupWorld);
     if (!m_WorldRenderer.RenderFrame(pInfo->displayTime, &COpenXRHook::DrawWorldFrame, 1.f)) return nullptr;
 
     m_WorldLayer = { XR_TYPE_COMPOSITION_LAYER_PROJECTION };

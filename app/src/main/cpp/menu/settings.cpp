@@ -1,7 +1,7 @@
 #include "settings.hpp"
 #include "theme.hpp"
 #include "ui.hpp"
-#include "../mods/minecraft.hpp"
+#include "../mods/fly.hpp"
 
 #include "imgui.h"
 
@@ -54,11 +54,11 @@ namespace
             __android_log_print(ANDROID_LOG_WARN, "shkbd", "settings: can't write %s", pszPath);
             return;
         }
-        const minecraft::SOptions mc = minecraft::GetOptions();
+        const flymod::SOptions fo = flymod::GetOptions();
         fprintf(f, "seed=%d\nstyle=%d\ndark=%d\nsize=%.0f\nmotion=%d\n"
-                   "mc_size=%.2f\nmc_snap=%d\nmc_solid=%d\nmc_hide=%d\nmc_bright=%.0f\n",
+                   "fly_size=%.0f\nfly_time=%.0f\nfly_wander=%d\nfly_swat=%d\nfly_labels=%d\n",
                 g_S.iSeed, g_S.iStyle, (int)g_S.bDark, g_S.fSizePct, (int)g_S.bMotion,
-                mc.fSize, (int)mc.bSnap, (int)mc.bSolid, (int)mc.bHideBehind, mc.fBrightness);
+                fo.fSize, fo.fTimeScale, (int)fo.bWander, (int)fo.bSwat, (int)fo.bLabels);
         fclose(f);
     }
 
@@ -74,7 +74,7 @@ settings::SSettings& settings::Get() { return g_S; }
 
 void settings::Load()
 {
-    minecraft::SOptions mc = minecraft::GetOptions();
+    flymod::SOptions fo = flymod::GetOptions();
     if (const char* pszPath = Path())
         if (FILE* f = fopen(pszPath, "r"))
         {
@@ -87,11 +87,11 @@ void settings::Load()
                 else if (sscanf(szLine, "dark=%d",     &i) == 1) g_S.bDark    = i != 0;
                 else if (sscanf(szLine, "size=%f",     &v) == 1) g_S.fSizePct = v;
                 else if (sscanf(szLine, "motion=%d",   &i) == 1) g_S.bMotion  = i != 0;
-                else if (sscanf(szLine, "mc_size=%f",   &v) == 1) mc.fSize       = v;
-                else if (sscanf(szLine, "mc_snap=%d",   &i) == 1) mc.bSnap       = i != 0;
-                else if (sscanf(szLine, "mc_solid=%d",  &i) == 1) mc.bSolid      = i != 0;
-                else if (sscanf(szLine, "mc_hide=%d",   &i) == 1) mc.bHideBehind = i != 0;
-                else if (sscanf(szLine, "mc_bright=%f", &v) == 1) mc.fBrightness = v;
+                else if (sscanf(szLine, "fly_size=%f",   &v) == 1) fo.fSize      = v;
+                else if (sscanf(szLine, "fly_time=%f",   &v) == 1) fo.fTimeScale = v;
+                else if (sscanf(szLine, "fly_wander=%d", &i) == 1) fo.bWander    = i != 0;
+                else if (sscanf(szLine, "fly_swat=%d",   &i) == 1) fo.bSwat      = i != 0;
+                else if (sscanf(szLine, "fly_labels=%d", &i) == 1) fo.bLabels    = i != 0;
             }
             fclose(f);
         }
@@ -99,9 +99,9 @@ void settings::Load()
     g_S.iSeed        = Clamp(g_S.iSeed, 0, theme::kSeedCount - 1);
     g_S.iStyle       = Clamp(g_S.iStyle, 0, theme::kStyleCount - 1);
     g_S.fSizePct     = Clamp(g_S.fSizePct, 80.f, 130.f);
-    mc.fSize         = Clamp(mc.fSize, 0.1f, 1.f);
-    mc.fBrightness   = Clamp(mc.fBrightness, 30.f, 100.f);
-    minecraft::SetOptions(mc);
+    fo.fSize         = Clamp(fo.fSize, 5.f, 60.f);
+    fo.fTimeScale    = Clamp(fo.fTimeScale, 10.f, 100.f);
+    flymod::SetOptions(fo);
     g_fScale = g_fTargetScale = g_S.fSizePct / 100.f;
     ui::g_bMotion = g_S.bMotion;
     ApplyTheme(false);

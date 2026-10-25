@@ -1,121 +1,195 @@
 #include "pages.hpp"
 #include "settings.hpp"
 #include "theme.hpp"
-#include "../config.hpp"
-#include "../minecraft/blocks.hpp"
-#include "../minecraft/draw.hpp"
-#include "../mods/minecraft.hpp"
+#include "../fly/brainview.hpp"
+#include "../mods/fly.hpp"
 
 #include "imgui.h"
 
 #include <math.h>
 #include <stdio.h>
 #include <string>
-#include <vector>
 
 // Страницы рисуются компонентами из ui.hpp. Строки одной группы: First … Middle … Last.
 namespace pages
 {
-    // ---------------------------------------------------------------- Minecraft
+    // ---------------------------------------------------------------- Fly
     namespace
     {
         int   s_iShownMessage = 0;
         float s_fSnackbar     = 0.f;
 
-        // Блоки по категориям — в порядке каталога
-        const std::vector<int>& CategoryBlocks(int iCat)
+        // 138639 → "138,639"
+        std::string Thousands(unsigned long long v)
         {
-            static std::vector<int> s_aCats[(int)mc::ECategory::Count];
-            static bool             s_bReady = false;
-            if (!s_bReady)
+            std::string s = std::to_string(v);
+            for (int i = (int)s.size() - 3; i > 0; i -= 3) s.insert((size_t)i, ",");
+            return s;
+        }
+
+        // Пометки на картинке мозга: входы, на которые сейчас идёт сигнал, и выходы за порогом
+        void BrainMarks(ImDrawList* dl, ImVec2 p0, ImVec2 p1, const flymod::SStatus& st)
+        {
+            struct SMark { const char* pszGroup; const char* pszLabel; bool bOn; bool bOut; };
+            const float* in = st.aIn;
+            const float* o  = st.aOut;
+            const SMark  aMarks[] = {
+                { "obj_L",   "LC10",       in[fly::kObjL]  > 3.f,  false }, { "obj_R",  "LC10",      in[fly::kObjR]  > 3.f, false },
+                { "loom_L",  "LPLC2/LC4",  in[fly::kLoomL] > 3.f,  false }, { "loom_R", "LPLC2/LC4", in[fly::kLoomR] > 3.f, false },
+                { "puff",    "bristles",   in[fly::kPuff]  > 3.f,  false }, { "sugar",  "sugar GRN", in[fly::kSugar] > 3.f, false },
+                { "bitter",  "bitter GRN", in[fly::kBitter] > 3.f, false }, { "hear_A", "JO (ear)",  in[fly::kHearA] > 3.f, false },
+                { "steer_L", "DNa",        o[fly::kSteerL] > 15.f, true  }, { "steer_R", "DNa",      o[fly::kSteerR] > 15.f, true },
+                { "gf",      "DNp01",      o[fly::kGF]     > 25.f, true  }, { "mn9",    "MN9",       o[fly::kMN9]    > 8.f,  true },
+                { "groom",   "DNg84/35",   o[fly::kGroom]  > 35.f, true  },
+            };
+            const float fs = ui::type::BodySmall * 0.85f;
+            for (const SMark& m : aMarks)
             {
-                for (int i = 0; i < mc::BlockCount(); i++) s_aCats[(int)mc::Block(i).eCat].push_back(i);
-                s_bReady = true;
+                ImVec2 uv;
+                if (!m.bOn || !fly::BrainViewGroup(m.pszGroup, uv)) continue;
+                const ImVec2 c(p0.x + (p1.x - p0.x) * uv.x, p0.y + (p1.y - p0.y) * uv.y);
+                const unsigned rgb = m.bOut ? 0xFFFFFF : 0x7FD8FF;   // экран мозга всегда тёмный
+                dl->AddCircle(c, ui::dp(9), ui::Col(rgb, 0.9f), 24, ui::dp(1.5f));
+                ui::Text(dl, fs, ImVec2(c.x + ui::dp(11), c.y - fs * 0.5f), ui::Col(rgb, 0.9f), m.pszLabel);
             }
-            return s_aCats[iCat];
+            ui::Text(dl, fs, ImVec2(p0.x + ui::dp(8), p1.y - fs - ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), "L");
+            ui::Text(dl, fs, ImVec2(p1.x - ui::dp(16), p1.y - fs - ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), "R");
         }
 
-        void BlockIcon(ImDrawList* dl, int i, ImVec2 c, float fSize, void* pUser)
+        void Meter(const char* pszName, float fHz, float fFull, float fMark, ui::ERow pos)
         {
-            const int iType = pUser ? (*static_cast<const std::vector<int>*>(pUser))[i] : i;
-            mc::DrawIcon(dl, mc::ContextAtlas(), iType, c, fSize);
-        }
-
-        const char* BlockName(int i, void* pUser)
-        {
-            return mc::Block((*static_cast<const std::vector<int>*>(pUser))[i]).pszName;
+            char sz[24];
+            snprintf(sz, sizeof(sz), "%.0f Hz", fHz);
+            ui::MeterRow(pszName, sz, fHz / fFull, fMark > 0.f ? fMark / fFull : -1.f, fMark > 0.f && fHz > fMark, pos);
         }
     }
 
-    void Minecraft()
+    void Fly()
     {
-        const minecraft::SStatus st  = minecraft::GetStatus();
-        minecraft::SOptions      opt = minecraft::GetOptions();
-        const bool               bHand = st.iSelected >= 0;
-        const char*              pszModeBtn = cfg::ModeButtonName();
+        flymod::StartBrain();
+        const fly::SSimInfo   info = fly::SimInfo();
+        const flymod::SStatus st   = flymod::GetStatus();
+        flymod::SOptions      opt  = flymod::GetOptions();
+        char sz[256];
 
-        // ---- В руке: блок, режим, отмена
-        char szHint[160];
-        if (!bHand)
-            snprintf(szHint, sizeof(szHint), "Pick a block below, point your right hand and pull the trigger.");
-        else if (st.eMode == minecraft::EMode::Place)
-            snprintf(szHint, sizeof(szHint), "Pull the right trigger to place it.%s%s%s", pszModeBtn ? " " : "", pszModeBtn ? pszModeBtn : "", pszModeBtn ? " switches to Break." : "");
-        else
-            snprintf(szHint, sizeof(szHint), "Pull the right trigger to break your blocks.%s%s%s", pszModeBtn ? " " : "", pszModeBtn ? pszModeBtn : "", pszModeBtn ? " switches to Place." : "");
-
-        ui::Section("In hand");
-        if (ui::IconRow(bHand ? mc::Block(st.iSelected).pszName : "Empty hand", szHint, BlockIcon, st.iSelected, nullptr, true, bHand, ui::ERow::First))
-            minecraft::Select(-1);
-        static const char* const kModes[] = { "Place", "Break" };
-        int iMode = (int)st.eMode;
-        if (ui::SegmentedRow("Mode", kModes, 2, &iMode, ui::ERow::Middle))
-            minecraft::SetMode((minecraft::EMode)iMode);
-        switch (ui::ActionsRow("Undo", "Clear all", st.bCanUndo, st.nBlocks > 0, ui::ERow::Last))
+        // ---- Мозг: загрузка, ошибка или статистика
+        ui::Section("Brain");
+        if (info.eLoad == fly::ELoad::Failed)
         {
-            case 1: minecraft::Undo();     break;
-            case 2: minecraft::ClearAll(); break;
+            const std::string sHint = flymod::BrainHint();
+            snprintf(sz, sizeof(sz), "%s", info.sError.c_str());
+            ui::MeterRow("fly_brain.bin not loaded", "", 0.f, -1.f, false, ui::ERow::Single);
+            ui::SupportText(sz);
+            snprintf(sz, sizeof(sz), "Build it on a PC: python tools/fly/make_brain.py --download. Then: %s and restart the game.", sHint.c_str());
+            ui::SupportText(sz);
+            return;
+        }
+        if (info.eLoad != fly::ELoad::Ready)
+        {
+            snprintf(sz, sizeof(sz), "%.0f%%", info.fProgress * 100.f);
+            ui::MeterRow("Unpacking the connectome", sz, info.fProgress, -1.f, false, ui::ERow::Single);
+            ui::SupportText("FlyWire v783: 138,639 neurons and 15 million connections. Takes a few seconds.");
+            return;
+        }
+
+        const std::string sN = Thousands(info.nNeurons), sM = Thousands(info.nConnections), sA = Thousands(info.nActive);
+        char szLived[32], szSpeed[32];
+        snprintf(szLived, sizeof(szLived), "%.1f s", info.dSimMs / 1000.0);
+        snprintf(szSpeed, sizeof(szSpeed), st.bFly && info.fSpeed > 0.f ? "%.1f× real time" : "—", info.fSpeed);
+        const ui::SStat aStats[] = {
+            { "Neurons", sN.c_str() }, { "Connections", sM.c_str() },
+            { "Brain time", szLived }, { "Could run at", szSpeed },
+            { "Spiked in 100 ms", st.bFly ? sA.c_str() : "—" }, { "Fly", st.bFly ? st.pszState : "Not spawned" },
+        };
+        ui::StatGrid(aStats, 6);
+        ui::Gap(2);
+
+        // Картинка мозга с пометками
+        fly::BrainViewUpdate(ImGui::GetIO().DeltaTime);
+        if (ImTextureData* pTex = fly::BrainView())
+        {
+            ImVec2 p0, p1;
+            if (ui::ImageRow(pTex->GetTexRef(), (float)fly::kViewW / (float)fly::kViewH, 0x0D0E12,
+                             "All neurons seen from behind. Bright: spiked in the last ~0.2 s. Rings: senses we drive (blue) and commands above threshold (white).",
+                             p0, p1, ui::ERow::Single))
+                BrainMarks(ImGui::GetWindowDrawList(), p0, p1, st);
+        }
+        if (st.bFly && info.fSpeed > 0.f && info.fSpeed < 1.f)
+            ui::SupportText("The headset can't keep up with real time: the fly lives in slow motion.");
+
+        // ---- Луч правой руки
+        ui::Section("Right hand");
+        static const char* const kTools[] = { "Off", "Fly", "Sugar", "Lure" };
+        int iTool = (int)st.eTool;
+        if (ui::SegmentedRow("Beam", kTools, 4, &iTool, ui::ERow::First)) flymod::SetTool((flymod::ETool)iTool);
+        if (ui::ActionsRow("Clear sugar", nullptr, st.nDrops > 0, false, ui::ERow::Last) == 1) flymod::ClearSugar();
+        static const char* const kHints[] = {
+            "Pick what the beam does. The fly also reacts to your hands: swing at it and looming neurons LPLC2 / LC4 fire the giant fiber; touch it gently and head bristles start grooming.",
+            "Point at a floor or a table and pull the trigger. Pull again to move the fly.",
+            "Pull the trigger to put sugar drops. The fly sees them with LC10, steers with DNa01 / DNa02 and drinks with its proboscis (MN9).",
+            "Hold the trigger and slowly drag the dot near the fly: LC10 neurons follow small moving things.",
+        };
+        ui::SupportText(kHints[iTool < 0 || iTool > 3 ? 0 : iTool]);
+
+        // ---- Стимулы прямо в сенсорные нейроны (как кнопки экспериментатора в fly-connectome)
+        ui::Section("Stimulate neurons");
+        const bool bFly = st.bFly && st.eState != flymod::EState::Swatted;
+        switch (ui::ActionsRow("Air puff", "Sugar taste", bFly, bFly, ui::ERow::First))
+        {
+            case 1: flymod::Stimulate(flymod::EStim::Puff);  break;
+            case 2: flymod::Stimulate(flymod::EStim::Sugar); break;
+            default: break;
+        }
+        switch (ui::ActionsRow("Loom left", "Loom right", bFly, bFly, ui::ERow::Middle))
+        {
+            case 1: flymod::Stimulate(flymod::EStim::LoomL); break;
+            case 2: flymod::Stimulate(flymod::EStim::LoomR); break;
+            default: break;
+        }
+        switch (ui::ActionsRow("Bitter taste", "Loud clap", bFly, bFly, ui::ERow::Last))
+        {
+            case 1: flymod::Stimulate(flymod::EStim::Bitter); break;
+            case 2: flymod::Stimulate(flymod::EStim::Sound);  break;
+            default: break;
+        }
+        ui::SupportText("Puff: antenna bristles BM_Ant / BM_Fr. Sugar and bitter: taste neurons of the proboscis. Loom: LPLC2 + LC4 of one eye. Clap: Johnston's organ, the fly's ear.");
+
+        // ---- Выходы: средняя частота группы нейронов, риска — порог поведения
+        ui::Section("Commands from the brain");
+        const float* o = st.aOut;
+        Meter("DNa01 / DNa02 left · steering",  o[fly::kSteerL], 60.f,  0.f,  ui::ERow::First);
+        Meter("DNa01 / DNa02 right · steering", o[fly::kSteerR], 60.f,  0.f,  ui::ERow::Middle);
+        Meter("DNp01 giant fiber · takeoff",    o[fly::kGF],     100.f, 45.f, ui::ERow::Middle);
+        Meter("MN9 · proboscis",                o[fly::kMN9],    40.f,  8.f,  ui::ERow::Middle);
+        Meter("DNg84 / DNg35 · grooming",       o[fly::kGroom],  150.f, 35.f, ui::ERow::Last);
+
+        // ---- Муха
+        ui::Section("Fly");
+        snprintf(sz, sizeof(sz), "%.0f%%", st.fHunger * 100.f);
+        char szEaten[16], szHops[16];
+        snprintf(szEaten, sizeof(szEaten), "%d", st.nEaten);
+        snprintf(szHops, sizeof(szHops), "%d", st.nTakeoffs);
+        const ui::SStat aFly[] = { { "Hunger", st.bFly ? sz : "—" }, { "Drops eaten", szEaten }, { "Takeoffs", szHops }, { "Why", st.bFly ? st.pszCause : "—" } };
+        ui::StatGrid(aFly, 4);
+        ui::Gap(2);
+        switch (ui::ActionsRow("Remove fly", "Reset brain", st.bFly, true, ui::ERow::Single))
+        {
+            case 1: flymod::RemoveFly();  break;
+            case 2: flymod::ResetBrain(); break;
             default: break;
         }
 
-        char szCount[200];
-        const char* pszSolid = !opt.bSolid           ? ""
-                             : !st.bSolidSupported   ? " Solid blocks don't work here: the game strips the Unity methods they need."
-                             : st.bPublicRoom        ? " Public room: blocks aren't solid here."
-                             :                         "";
-        snprintf(szCount, sizeof(szCount), "%d of %d blocks. Only you see them.%s", st.nBlocks, cfg::kMaxBlocks, pszSolid);
-        ui::SupportText(szCount);
-
-        // ---- Блоки: сетки по категориям, повторное нажатие убирает блок из руки
-        for (int iCat = 0; iCat < (int)mc::ECategory::Count; iCat++)
-        {
-            const std::vector<int>& blocks = CategoryBlocks(iCat);
-            if (blocks.empty()) continue;
-            int iSel = -1;
-            for (int i = 0; i < (int)blocks.size(); i++) if (blocks[i] == st.iSelected) iSel = i;
-
-            ui::Section(mc::CategoryName((mc::ECategory)iCat));
-            ImGui::PushID(iCat);
-            const int iPressed = ui::TileGrid("##blocks", (int)blocks.size(), iSel, BlockIcon, BlockName,
-                                              const_cast<std::vector<int>*>(&blocks), true);
-            ImGui::PopID();
-            if (iPressed >= 0) minecraft::Select(blocks[iPressed] == st.iSelected ? -1 : blocks[iPressed]);
-        }
-
-        // ---- Настройки блоков
+        // ---- Настройки
         ui::Section("Options");
         bool bChanged = false;
-        if (ui::SliderRow("Block size", &opt.fSize, 0.1f, 1.f, "%.2f m", ui::ERow::First))
-        {
-            opt.fSize = roundf(opt.fSize * 20.f) / 20.f;   // шаг 5 см
-            bChanged  = true;
-        }
-        bChanged |= ui::SwitchRow("Snap to grid", "New blocks line up on a grid of their size", &opt.bSnap, ui::ERow::Middle);
-        bChanged |= ui::SwitchRow("Solid blocks", "Stand on blocks and climb them. Off in public rooms", &opt.bSolid, ui::ERow::Middle, st.bSolidSupported);
-        bChanged |= ui::SwitchRow("Hide behind walls", "Blocks fade out when the game's walls cover them", &opt.bHideBehind, ui::ERow::Middle);
-        bChanged |= ui::SliderRow("Brightness", &opt.fBrightness, 30.f, 100.f, "%.0f%%", ui::ERow::Last);
+        if (ui::SliderRow("Fly size", &opt.fSize, 5.f, 60.f, "%.0f×", ui::ERow::First)) { opt.fSize = roundf(opt.fSize); bChanged = true; }
+        if (ui::SliderRow("Time", &opt.fTimeScale, 10.f, 100.f, "%.0f%%", ui::ERow::Middle)) { opt.fTimeScale = roundf(opt.fTimeScale / 5.f) * 5.f; bChanged = true; }
+        bChanged |= ui::SwitchRow("Wander", "Walks around on its own. Off: only to food, the lure or away from threats", &opt.bWander, ui::ERow::Middle);
+        bChanged |= ui::SwitchRow("Swatting", "A fast hand that reaches the fly before takeoff swats it", &opt.bSwat, ui::ERow::Middle);
+        bChanged |= ui::SwitchRow("Labels", "What the fly does and which neurons decided it", &opt.bLabels, ui::ERow::Last);
         if (bChanged)
         {
-            minecraft::SetOptions(opt);
+            flymod::SetOptions(opt);
             settings::Changed(false);
         }
         ui::Gap(56);   // место под snackbar
@@ -172,10 +246,11 @@ namespace pages
         ui::PersonRow("swesws", "Menu base",      ui::ERow::First);
         ui::PersonRow("pubert", "XrInput system", ui::ERow::Last);
 
-        ui::Section("Block textures");
-        ui::PersonRow("XSSheep",     "Pixel Perfection, CC BY-SA 4.0",        ui::ERow::First);
-        ui::PersonRow("Nova Wostra", "Pixel Perfection Legacy, CC BY-SA 4.0", ui::ERow::Middle);
-        ui::PersonRow("Mineclonia",  "Texture set the blocks come from",      ui::ERow::Last);
+        ui::Section("Fly brain");
+        ui::PersonRow("Shiu et al. 2024", "Whole-brain spiking model, Nature",       ui::ERow::First);
+        ui::PersonRow("FlyWire",          "Connectome v783, Dorkenwald et al. 2024", ui::ERow::Middle);
+        ui::PersonRow("fly-connectome",   "Senses, readouts and behaviour, XYZ-WEB3", ui::ERow::Middle);
+        ui::PersonRow("NeuroMechFly",     "Leg rhythm and grooming the body follows", ui::ERow::Last);
 
         ui::Section("Libraries");
         ui::PersonRow("Dear ImGui", "UI library by Omar Cornut", ui::ERow::First);

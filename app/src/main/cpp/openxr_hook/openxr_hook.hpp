@@ -25,6 +25,7 @@ public:
 
     // Слой мира: стерео-слой поверх сцены игры, в её пространстве и с её позами глаз.
     // Рисует ImGui (свой контекст и swapchain); каждый глаз — в свой участок текстуры.
+    void (*m_pfnSetupWorld)()                                  = nullptr;   // один раз: шрифт контекста слоя мира
     bool (*m_pfnWorldActive)()                                 = nullptr;   // нужен ли слой в этом кадре
     void (*m_pfnDrawWorld)(const SWorldEye* aEyes, int nEyes)  = nullptr;
 

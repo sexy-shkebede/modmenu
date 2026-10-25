@@ -5,7 +5,7 @@
 #include "settings.hpp"
 #include "theme.hpp"
 #include "../config.hpp"
-#include "../mods/minecraft.hpp"
+#include "../mods/fly.hpp"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -238,7 +238,7 @@ namespace
 void menu::Setup()
 {
     LoadFont();
-    settings::Load();   // тема, анимации, размер панели, настройки блоков
+    settings::Load();   // тема, анимации, размер панели, настройки мухи
 
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding    = ImVec2(0.f, 0.f);
@@ -307,9 +307,9 @@ void menu::DrawSprites()
         fg->AddCircleFilled(c, 8.f, Col(role::OnSurface), 24);
     }
 
-    // Подпись: какой блок в руке — плашка inverse surface, как tooltip в M3
+    // Подпись: что делает луч — плашка inverse surface, как tooltip в M3
     {
-        const std::string sItem = minecraft::BeamLabel();
+        const std::string sItem = flymod::BeamLabel();
         const char*       psz   = sItem.c_str();
         const float  x = (float)cfg::kLabelSprite[0], y = (float)cfg::kLabelSprite[1];
         const float  w = (float)cfg::kLabelSprite[2], h = (float)cfg::kLabelSprite[3];

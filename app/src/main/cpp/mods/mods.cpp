@@ -1,5 +1,5 @@
 #include "mods.hpp"
-#include "minecraft.hpp"
+#include "fly.hpp"
 #include <android/log.h>
 
 namespace mods
@@ -22,7 +22,7 @@ namespace mods
 
     void Tick(float fDt)
     {
-        static float s_fMinecraft = 1.f;
-        Guarded("minecraft", fDt, s_fMinecraft, [&] { minecraft::Tick(fDt); });
+        static float s_fFly = 1.f;
+        Guarded("fly", fDt, s_fFly, [&] { flymod::Tick(fDt); });
     }
 }

@@ -113,7 +113,7 @@ namespace ui
     // ---------- Фигуры и иконки ----------
     void RoundRect(ImDrawList* dl, ImVec2 a, ImVec2 b, float rTL, float rTR, float rBR, float rBL, ImU32 col);
 
-    enum class EIcon { Flight, GridView, Bolt, Cloud, Settings, Info, Close, ChevronRight, Check, Edit, Add, Backspace, Shift, ShiftOn, Cube };
+    enum class EIcon { Flight, GridView, Bolt, Cloud, Settings, Info, Close, ChevronRight, Check, Edit, Add, Backspace, Shift, ShiftOn, Fly };
     void Icon(ImDrawList* dl, EIcon icon, ImVec2 center, float size, ImU32 col);   // Material Symbols, сетка 24
 
     // ---------- Компоненты для страниц ----------
@@ -137,7 +137,7 @@ namespace ui
     // Кнопки M3: высота 40 dp, форма full. width 0 — по подписи
     enum class EButton { Filled, Tonal, Outlined, Text };
     bool Button(const char* label, EButton style, float width = 0.f, bool bEnabled = true);
-    // Плитка с двумя tonal-кнопками рядом; возвращает 1 или 2 — какую нажали, иначе 0
+    // Плитка с двумя tonal-кнопками рядом (labelB nullptr — одна во всю ширину); возвращает 1 или 2 — какую нажали, иначе 0
     int  ActionsRow(const char* labelA, const char* labelB, bool bEnabledA, bool bEnabledB, ERow pos = ERow::Single);
     // Строка "заголовок + значение" с карандашом справа; true — нажали (открыть редактирование)
     bool ValueRow(const char* headline, const char* value, ERow pos = ERow::Single);
@@ -150,14 +150,10 @@ namespace ui
     void Snackbar(const char* text, float alpha);
     void Gap       (float dpValue);   // отступ между группами
 
-    // Иконка плитки i в центре c, размер — высота иконки (рисует вызывающий: блоки, предметы)
-    using FnIcon = void (*)(ImDrawList* dl, int i, ImVec2 c, float size, void* user);
-    using FnName = const char* (*)(int i, void* user);
-    // Сетка плиток, как инвентарь: выбранная — secondary container с рамкой primary, внизу
-    // подпись наведённой (или выбранной). bPixelArt — иконки без сглаживания текстур.
-    // Возвращает индекс нажатой плитки, иначе -1.
-    int  TileGrid(const char* id, int count, int selected, FnIcon icon, FnName name, void* user, bool bPixelArt, ERow pos = ERow::Single);
-    // Строка с крупной иконкой слева (i < 0 — пустая ячейка) и кнопкой "убрать" справа
-    // (bClose); true — нажали её.
-    bool IconRow(const char* headline, const char* supporting, FnIcon icon, int i, void* user, bool bPixelArt, bool bClose, ERow pos = ERow::Single);
+    // Картинка (текстура ImGui) во всю ширину строки на фоне rgbBack, пропорции fAspect = ширина / высота,
+    // подпись под ней. outMin / outMax — где картинка (для пометок поверх). false — строка не видна.
+    bool ImageRow(ImTextureRef tex, float fAspect, unsigned rgbBack, const char* caption, ImVec2& outMin, ImVec2& outMax, ERow pos = ERow::Single);
+    // Шкала: подпись и значение сверху, дорожка снизу (fFill 0..1); fMark — риска порога (0..1, вне — нет);
+    // bLit — порог пройден (tertiary)
+    void MeterRow(const char* headline, const char* value, float fFill, float fMark, bool bLit, ERow pos = ERow::Single);
 }

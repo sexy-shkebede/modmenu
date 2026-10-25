@@ -14,13 +14,13 @@ namespace pages
         int         iGroup;
     };
 
-    void Minecraft();
+    void Fly();
     void Settings();
     void Info();
 
     inline constexpr SPage kPages[] =
     {
-        { "Minecraft", ui::EIcon::Cube,     Minecraft, 0 },
+        { "Fly",       ui::EIcon::Fly,      Fly,       0 },
         { "Settings",  ui::EIcon::Settings, Settings,  1 },
         { "Info",      ui::EIcon::Info,     Info,      1 },
     };

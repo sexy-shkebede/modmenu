@@ -21,7 +21,7 @@ namespace cfg
     inline constexpr int   kPanelResX    = 1440;
     inline constexpr int   kPanelResY    = 1080;
 
-    // Луч спавна. Его картинки (спрайты) рисуются в полосе под панелью в той же текстуре:
+    // Луч правой руки (муха, сахар, приманка). Его картинки (спрайты) рисуются в полосе под панелью в той же текстуре:
     // x, y, ширина, высота в пикселях. Слои OpenXR ссылаются на эти участки.
     // Между участками — пустые поля, чтобы фильтрация текстуры не подмешивала соседей.
     inline constexpr int   kSpriteStripH     = 144;
@@ -31,8 +31,8 @@ namespace cfg
     inline constexpr float kSpawnBeamMaxM    = 30.f;    // дальность луча, м
     inline constexpr float kSpawnBeamWidthM  = 0.008f;  // толщина луча, м
 
-    // Слой мира с блоками: стерео, глаза рядом в одной текстуре. Разрешение — на глаз
-    // (по одной стороне): выше — чётче края блоков, но дороже для GPU.
+    // Слой мира с мухой: стерео, глаза рядом в одной текстуре. Разрешение — на глаз
+    // (по одной стороне): выше — чётче края, но дороже для GPU.
     inline constexpr int   kWorldEyeRes      = 1280;
 
     // Меню висит на позе "прицела" (aim) левого контроллера; false — на позе рукояти (grip).
@@ -51,24 +51,9 @@ namespace cfg
     // Прокрутка страниц правым стиком (вверх/вниз), пока луч на меню.
     inline constexpr bool  kStickScroll = true;
 
-    // Minecraft: кнопка ПРАВОГО контроллера, которая переключает Place / Break, пока в руке блок.
-    // None — переключать только в меню. Игра эту кнопку тоже видит.
-    enum class EModeButton { None, A, B };
-    inline constexpr EModeButton kModeButton = EModeButton::B;
-
-    // Minecraft: сколько блоков можно поставить и как далеко "в воздухе" встаёт блок,
-    // если луч ни во что не попал (м)
-    inline constexpr int   kMaxBlocks     = 1000;
-    inline constexpr float kAirPlaceM     = 1.5f;
-
     // Меняется на лету из Settings (сохраняется в файл настроек меню).
     inline float g_fPanelScale = 1.f;    // множитель физического размера панели
     inline bool  g_bMotion     = true;   // анимации меню (включая «пружину» появления)
-
-    constexpr const char* ModeButtonName()
-    {
-        return kModeButton == EModeButton::A ? "A" : kModeButton == EModeButton::B ? "B" : nullptr;
-    }
 
     constexpr const char* ToggleButtonName()
     {
