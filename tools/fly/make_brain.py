@@ -71,6 +71,8 @@ GROUPS = {
     "gf": dict(types=["DNp01"]), "fear": dict(types=["DNp01", "DNp02", "DNp04", "DNp11"]),
     "mn9": dict(ids=[MN9_ID]), "groom": dict(types=["DNg84", "DNg35"]),
     "walk": dict(types=["DNp09"]), "back": dict(types=["MDN"]),
+    # команда ходьбы BDN2 (DNg100): её частота запускает генератор шага в брюшной цепочке (fly_vnc.bin)
+    "bdn2": dict(types=["DNg100"]),
     "hear2": dict(auto="jo_ab_top60"), "hear_jo": dict(prefix=["JO-A", "JO-B"]),
 }
 SUPER = ["optic", "central", "sensory", "visual_projection", "ascending", "descending",

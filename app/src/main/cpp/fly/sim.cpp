@@ -3,6 +3,8 @@
 #include "brain_blob.hpp"
 
 #include <condition_variable>
+#include <math.h>
+#include <memory>
 #include <mutex>
 #include <thread>
 #include <time.h>
@@ -10,7 +12,7 @@
 
 namespace
 {
-    const char* const kInputGroups[fly::kInputCount]   = { "obj_L", "obj_R", "loom_L", "loom_R", "puff", "wind", "sugar", "bitter", "hear_A", "hear_B", "odor_L", "odor_R" };
+    const char* const kInputGroups[fly::kInputCount]   = { "obj_L", "obj_R", "loom_L", "loom_R", "puff", "wind", "sugar", "bitter", "hear_A", "hear_B", "odor_L", "odor_R", "bdn2" };
     const char* const kOutputGroups[fly::kOutputCount] = { "steer_L", "steer_R", "head_L", "head_R", "gf", "fear", "mn9", "groom", "walk", "back", "hear2" };
 
     double NowS()
@@ -38,6 +40,147 @@ namespace
     SShared             S;
     fly::SConnectome    g_Conn;                  // пишется только потоком мозга до Ready
     std::vector<std::string> g_Paths;
+
+    // ---- брюшная нервная цепочка: свой поток идёт за временем мозга
+    constexpr float kVncDt   = 0.0009f;          // шаг цепочки, с (два на блок мозга 1.8 мс)
+    constexpr float kAnMaxHz = 150.f;            // восходящие — в мозг не чаще
+    struct SVncShared
+    {
+        std::mutex              lock;
+        std::condition_variable wake;
+        bool                    bReady = false, bRun = false, bReset = false, bAnNew = false;
+        double                  dBrainMs = 0.0;  // докуда дошёл мозг
+        std::vector<float>      dn, an;          // DN от мозга, AN в мозг
+        fly::SVncOut            out;
+        std::vector<float>      rates;           // снимок частот для картинки
+    };
+    SVncShared          V;
+    fly::SVncData       g_Vnc;                   // пишется только потоком мозга до запуска цепочки
+
+    std::string VncPath(const std::string& sBrain)
+    {
+        const size_t i = sBrain.rfind("fly_brain.bin");
+        return i == std::string::npos ? std::string() : sBrain.substr(0, i) + "fly_vnc.bin";
+    }
+
+    // Загрузка: вшитая в библиотеку, иначе файл рядом с fly_brain.bin. Нет — мозг без цепочки
+    bool LoadVnc()
+    {
+        std::string sUsed, sErr = "fly_vnc.bin not found";
+        bool bOk = false;
+        {
+            std::lock_guard<std::mutex> l(S.lock);
+            S.info.eVnc = fly::ELoad::Loading;
+        }
+#ifdef FLY_VNC_EMBEDDED
+        {
+            std::string e;
+            if (g_Vnc.LoadMemory(g_FlyVncBin, (size_t)(g_FlyVncBinEnd - g_FlyVncBin), e)) { bOk = true; sUsed = "built into the library"; }
+            else sErr = "built-in fly_vnc.bin: " + e;
+        }
+#endif
+        for (size_t i = 0; i < g_Paths.size() && !bOk; i++)
+        {
+            const std::string p = VncPath(g_Paths[i]);
+            if (p.empty()) continue;
+            std::string e;
+            if (g_Vnc.Load(p.c_str(), e)) { bOk = true; sUsed = p; break; }
+            if (e != "can't open file") { sErr = p + ": " + e; break; }
+        }
+        __android_log_print(bOk ? ANDROID_LOG_INFO : ANDROID_LOG_WARN, "shkbd", "fly: nerve cord %s (%s)",
+                            bOk ? "loaded" : "not loaded", bOk ? sUsed.c_str() : sErr.c_str());
+        std::lock_guard<std::mutex> l(S.lock);
+        S.info.eVnc = bOk ? fly::ELoad::Loading : fly::ELoad::Failed;   // Ready — после калибровки
+        S.info.sVncPath = bOk ? sUsed : std::string();
+        S.info.sVncError = bOk ? std::string() : sErr;
+        S.info.nVncNeurons = g_Vnc.Nv;
+        S.info.nVncConnections = g_Vnc.M;
+        S.info.nVncDn = g_Vnc.Nd;
+        S.info.nVncAn = (uint32_t)g_Vnc.an.size();
+        return bOk;
+    }
+
+    void VncThread()
+    {
+        fly::CVnc      vnc(g_Vnc);
+        fly::CVncMeter meter(g_Vnc);
+        // Опора: размах ритма ног при ходьбе прямо — BDN2 (DNg100) с обеих сторон 15 Гц, 1 с
+        {
+            if (const std::vector<uint32_t>* g = g_Vnc.Group("dn_DNg100"))
+                for (uint32_t n : *g) vnc.SetDnRate(n - g_Vnc.Nv, 15.f);
+            for (int k = 0; k < 556; k++) { vnc.Step(kVncDt); vnc.Step(kVncDt); meter.Sample(vnc, 2.f * kVncDt); }
+            float aBase[fly::kLegCount], hz = 0.f;
+            int   n = 0;
+            for (int l = 0; l < fly::kLegCount; l++)
+            {
+                aBase[l] = meter.Out().aLegAmp[l];
+                if (meter.Out().aLegHz[l] > 0.f) { hz += meter.Out().aLegHz[l]; n++; }
+            }
+            vnc.Reset();
+            meter.Reset();
+            meter.SetBase(aBase, n ? hz / (float)n : 10.f);
+        }
+        {
+            std::lock_guard<std::mutex> l(V.lock);
+            V.out = meter.Out();
+            V.bReady = true;
+        }
+        {
+            std::lock_guard<std::mutex> l(S.lock);
+            S.info.eVnc = fly::ELoad::Ready;
+        }
+
+        std::vector<float> dn(g_Vnc.Nd, 0.f), an;
+        double tV = -1.0, dSpeedWall = 0.0, dSpeedSim = 0.0, tSpeed = NowS(), tRates = 0.0;
+        for (;;)
+        {
+            double tB;
+            bool   bReset;
+            {
+                std::unique_lock<std::mutex> l(V.lock);
+                if (!V.bRun) V.wake.wait(l, [] { return V.bRun; });
+                tB = V.dBrainMs;
+                dn = V.dn;
+                bReset = V.bReset;
+                V.bReset = false;
+            }
+            if (bReset) { vnc.Reset(); meter.Reset(); }
+            if (tV < 0.0 || bReset || tB - tV > 100.0) tV = tB;   // отстали больше чем на 100 мс — не догоняем
+            if (tV + 1.8 > tB)
+            {
+                timespec ts = { 0, 2000000 };
+                nanosleep(&ts, nullptr);
+                continue;
+            }
+            for (uint32_t d = 0; d < g_Vnc.Nd; d++) vnc.SetDnRate(d, dn[d]);
+            // пачка до ~20 мс, потом свежие частоты DN
+            const double t0 = NowS();
+            for (int n = 0; tV + 1.8 <= tB && n < 11; n++)
+            {
+                vnc.Step(kVncDt);
+                vnc.Step(kVncDt);
+                meter.Sample(vnc, 2.f * kVncDt);
+                tV += 1.8;
+                dSpeedSim += 1.8;
+            }
+            dSpeedWall += NowS() - t0;
+            fly::AnRates(g_Vnc, vnc, an);
+            {
+                std::lock_guard<std::mutex> l(V.lock);
+                V.an.swap(an);
+                V.bAnNew = true;
+                V.out = meter.Out();
+                if (tV - tRates > 66.0) { V.rates = vnc.Rates(); tRates = tV; }
+            }
+            if (NowS() - tSpeed > 1.0)
+            {
+                std::lock_guard<std::mutex> l(S.lock);
+                S.info.fVncSpeed = dSpeedWall > 0.0 ? (float)(dSpeedSim / 1000.0 / dSpeedWall) : 0.f;
+                dSpeedWall = dSpeedSim = 0.0;
+                tSpeed = NowS();
+            }
+        }
+    }
 
     void Thread()
     {
@@ -85,6 +228,24 @@ namespace
         for (int i = 0; i < fly::kInputCount; i++)  { aIn[i]  = g_Conn.Group(kInputGroups[i]);  if (!aIn[i])  aIn[i]  = &kEmpty; }
         for (int i = 0; i < fly::kOutputCount; i++) { aOut[i] = g_Conn.Group(kOutputGroups[i]); if (!aOut[i]) aOut[i] = &kEmpty; }
 
+        // ---- цепочка (необязательно)
+        const bool bVnc = LoadVnc();
+        std::vector<float> anSet;
+        std::unique_ptr<fly::CDnTap> pTap;
+        std::vector<uint32_t> walkDn;   // BDN2 (DNg100) в цепочке
+        if (bVnc)
+        {
+            pTap.reset(new fly::CDnTap(g_Vnc, g_Conn.N));
+            if (const std::vector<uint32_t>* g = g_Vnc.Group("dn_DNg100"))
+                for (uint32_t n : *g) walkDn.push_back(n - g_Vnc.Nv);
+            anSet.assign(g_Vnc.an.size(), 0.f);
+            {
+                std::lock_guard<std::mutex> l(V.lock);   // V.bRun ставит SimRun вместе с S.bRun
+                V.dn.assign(g_Vnc.Nd, 0.f);
+            }
+            std::thread(VncThread).detach();
+        }
+
         fly::CBrain brain(g_Conn, fly::SBrainParams(), (uint64_t)(NowS() * 1e6));
         brain.m_bLogSpikes = true;
         const int    D       = brain.DelaySteps();
@@ -92,6 +253,7 @@ namespace
         float        aCur[fly::kInputCount] = {};
         uint64_t     aSpk[fly::kOutputCount] = {};
         std::vector<uint32_t> spk;
+        std::vector<float>    anIn;
 
         double tWall0 = NowS(), dSim0 = 0.0, dSpeedWall = 0.0, dSpeedSim = 0.0, tSpeed = tWall0;
         float  fLastScale = -1.f;
@@ -123,6 +285,13 @@ namespace
             {
                 brain.Reset();
                 for (float& f : aCur) f = 0.f;
+                for (float& f : anSet) f = 0.f;   // Reset выключил и входы восходящих
+                if (pTap)
+                {
+                    pTap->Reset();
+                    std::lock_guard<std::mutex> l(V.lock);
+                    V.bReset = true;
+                }
             }
             for (int i = 0; i < fly::kInputCount; i++)
                 if (aWant[i] != aCur[i])
@@ -144,6 +313,33 @@ namespace
             brain.TakeSpikes(spk);
             const double tNow = brain.TimeMs();
             for (uint32_t n : spk) lastSpike[n] = tNow;
+
+            // ---- мозг ↔ цепочка: DN туда, AN (что пришло с прошлого блока) — сюда
+            if (pTap)
+            {
+                pTap->Add(spk, (float)dBlockMs);
+                bool bAn = false;
+                {
+                    std::lock_guard<std::mutex> l(V.lock);
+                    V.dn = pTap->Rates();
+                    // Команда "иди" доходит до цепочки ровной частотой: спайки BDN2 в мозге — пуассоновские,
+                    // а ритм ног держится только на ровном входе (проверено)
+                    if (aCur[fly::kWalkDrive] > 0.f)
+                        for (uint32_t d : walkDn) V.dn[d] = aCur[fly::kWalkDrive];
+                    V.dBrainMs = tNow;
+                    if (V.bAnNew) { anIn.swap(V.an); V.bAnNew = false; bAn = true; }
+                }
+                if (bAn)
+                    for (size_t a = 0; a < anIn.size() && a < anSet.size(); a++)
+                    {
+                        const float x = anIn[a] < kAnMaxHz ? anIn[a] : kAnMaxHz;
+                        if (fabsf(x - anSet[a]) > 1.f || (x == 0.f && anSet[a] != 0.f))
+                        {
+                            anSet[a] = x;
+                            brain.SetRate(g_Vnc.an[a].fafb, x);
+                        }
+                    }
+            }
             dSpeedWall += tCalc; dSpeedSim += dBlockMs;
             {
                 std::lock_guard<std::mutex> l(S.lock);
@@ -208,7 +404,12 @@ void fly::SimRun(bool bRun)
         std::lock_guard<std::mutex> l(S.lock);
         S.bRun = bRun;
     }
+    {
+        std::lock_guard<std::mutex> l(V.lock);
+        V.bRun = bRun;
+    }
     S.wake.notify_all();
+    V.wake.notify_all();
 }
 
 void fly::SimSetTimeScale(float fScale)
@@ -258,4 +459,24 @@ const fly::SConnectome* fly::SimConnectome()
 {
     std::lock_guard<std::mutex> l(S.lock);
     return S.info.eLoad == ELoad::Ready ? &g_Conn : nullptr;
+}
+
+bool fly::SimVnc(SVncOut& out)
+{
+    std::lock_guard<std::mutex> l(V.lock);
+    if (!V.bReady) return false;
+    out = V.out;
+    return true;
+}
+
+void fly::SimVncRates(std::vector<float>& out)
+{
+    std::lock_guard<std::mutex> l(V.lock);
+    out = V.rates;
+}
+
+const fly::SVncData* fly::SimVncData()
+{
+    std::lock_guard<std::mutex> l(V.lock);
+    return V.bReady ? &g_Vnc : nullptr;
 }

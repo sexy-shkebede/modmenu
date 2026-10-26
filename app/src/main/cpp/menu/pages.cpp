@@ -57,6 +57,37 @@ namespace pages
             ui::Text(dl, fs, ImVec2(p1.x - ui::dp(16), p1.y - fs - ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), "R");
         }
 
+        // Пометки на картинке цепочки: ноги с ритмом, прыжковая мышца, крылья
+        void CordMarks(ImDrawList* dl, ImVec2 p0, ImVec2 p1, const flymod::SStatus& st)
+        {
+            const fly::SVncOut& v = st.vnc;
+            const float fs = ui::type::BodySmall * 0.85f;
+            const auto Mark = [&](const char* pszGroup, const char* pszLabel, bool bLeftText)
+            {
+                ImVec2 uv;
+                if (!fly::CordViewGroup(pszGroup, uv)) return;
+                const ImVec2 c(p0.x + (p1.x - p0.x) * uv.x, p0.y + (p1.y - p0.y) * uv.y);
+                dl->AddCircle(c, ui::dp(7), ui::Col(0xFFFFFF, 0.9f), 20, ui::dp(1.5f));
+                const float tw = ui::TextSize(fs, pszLabel).x;
+                ui::Text(dl, fs, ImVec2(bLeftText ? c.x - ui::dp(10) - tw : c.x + ui::dp(10), c.y - fs * 0.5f), ui::Col(0xFFFFFF, 0.9f), pszLabel);
+            };
+            static const char* const kLegs[fly::kLegCount] = { "L1_all", "L2_all", "L3_all", "R1_all", "R2_all", "R3_all" };
+            char sz[16];
+            for (int l = 0; l < fly::kLegCount; l++)
+            {
+                if (v.aLegHz[l] <= 0.f) continue;
+                snprintf(sz, sizeof(sz), "%.0f Hz", v.aLegHz[l]);
+                Mark(kLegs[l], sz, l == 0 || l == 3);
+            }
+            if (v.aTtm[0] + v.aTtm[1] > 10.f) Mark(v.aTtm[0] > v.aTtm[1] ? "ttm_L" : "ttm_R", "TTMn", false);
+            if (v.aWingPower[0] + v.aWingPower[1] > 5.f) Mark(v.aWingPower[0] > v.aWingPower[1] ? "wing_power_L" : "wing_power_R", "wings", false);
+            ui::Text(dl, fs, ImVec2(p0.x + ui::dp(8), p0.y + ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), "R");
+            ui::Text(dl, fs, ImVec2(p0.x + ui::dp(8), p1.y - fs - ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), "L");
+            const char* pszTail = "abdomen";
+            const float tw = ui::TextSize(fs, pszTail).x;
+            ui::Text(dl, fs, ImVec2(p1.x - ui::dp(8) - tw, p1.y - fs - ui::dp(4)), ui::Col(0xFFFFFF, 0.55f), pszTail);
+        }
+
         void Meter(const char* pszName, float fHz, float fFull, float fMark, ui::ERow pos)
         {
             char sz[24];
@@ -164,6 +195,54 @@ namespace pages
         Meter("MN9 · proboscis",                o[fly::kMN9],    40.f,  8.f,  ui::ERow::Middle);
         Meter("DNg84 / DNg35 · grooming",       o[fly::kGroom],  150.f, 35.f, ui::ERow::Last);
 
+        // ---- Брюшная нервная цепочка (BANC): ноги, крылья, прыжок
+        ui::Section("Nerve cord");
+        if (info.eVnc == fly::ELoad::Failed)
+        {
+            ui::MeterRow("fly_vnc.bin not loaded", "", 0.f, -1.f, false, ui::ERow::Single);
+            snprintf(sz, sizeof(sz), "%s. Optional: without it the brain drives the body directly. Build it on a PC: python tools/fly/make_vnc.py --download, then put it next to fly_brain.bin.", info.sVncError.c_str());
+            ui::SupportText(sz);
+        }
+        else if (info.eVnc != fly::ELoad::Ready)
+            ui::MeterRow("Tuning the nerve cord", "", 0.f, -1.f, false, ui::ERow::Single);
+        else
+        {
+            const std::string sVn = Thousands(info.nVncNeurons), sVm = Thousands(info.nVncConnections), sVa = Thousands(st.vnc.nActive);
+            char szIo[40], szVSpeed[32], szStep[32];
+            snprintf(szIo, sizeof(szIo), "%s / %s", Thousands(info.nVncDn).c_str(), Thousands(info.nVncAn).c_str());
+            snprintf(szVSpeed, sizeof(szVSpeed), st.bFly && info.fVncSpeed > 0.f ? "%.1f× real time" : "—", info.fVncSpeed);
+            snprintf(szStep, sizeof(szStep), st.bVnc && st.nRhythm > 0 ? "%.0f Hz · %d legs" : "—", st.fStepHz, st.nRhythm);
+            const ui::SStat aCord[] = {
+                { "Neurons", sVn.c_str() }, { "Connections", sVm.c_str() },
+                { "DN in / AN out", szIo }, { "Could run at", szVSpeed },
+                { "Active now", st.bFly ? sVa.c_str() : "—" }, { "Leg rhythm", szStep },
+            };
+            ui::StatGrid(aCord, 6);
+            ui::Gap(2);
+            fly::CordViewUpdate(ImGui::GetIO().DeltaTime);
+            if (ImTextureData* pTex = fly::CordView())
+            {
+                ImVec2 p0, p1;
+                if (ui::ImageRow(pTex->GetTexRef(), (float)fly::kCordW / (float)fly::kCordH, 0x0D0E12,
+                                 "The ventral nerve cord seen from above, head to the left. Bright: active now. Rings: legs with a stepping rhythm, the jump muscle (TTMn), wing power muscles.",
+                                 p0, p1, ui::ERow::First))
+                    CordMarks(ImGui::GetWindowDrawList(), p0, p1, st);
+            }
+            // ритм ноги: размах относительно ходьбы прямо; частота — справа
+            static const char* const kLegName[fly::kLegCount] = { "Left front leg", "Left middle leg", "Left hind leg", "Right front leg", "Right middle leg", "Right hind leg" };
+            const fly::SVncOut& v = st.vnc;
+            for (int l = 0; l < fly::kLegCount; l++)
+            {
+                char szHz[24];
+                snprintf(szHz, sizeof(szHz), v.aLegHz[l] > 0.f ? "%.0f Hz" : "—", v.aLegHz[l]);
+                const float fill = v.aLegBase[l] > 0.05f ? v.aLegAmp[l] / v.aLegBase[l] / 2.f : (v.aLegAmp[l] > 0.f ? 1.f : 0.f);
+                ui::MeterRow(kLegName[l], szHz, fill, 0.5f, v.aLegHz[l] > 0.f, ui::ERow::Middle);
+            }
+            Meter("Jump muscle TTMn · takeoff", v.aTtm[0] + v.aTtm[1], 60.f, 25.f, ui::ERow::Middle);
+            Meter("Wing power DLM / DVM",       v.aWingPower[0] + v.aWingPower[1], 150.f, 0.f, ui::ERow::Last);
+            ui::SupportText("BANC connectome of the brain and nerve cord (Bates et al. 2026), rate model of Pugliese et al. 2025. The brain's descending neurons drive it, its ascending neurons feed back into the brain. Leg bars: rhythm strength, the mark is walking straight.");
+        }
+
         // ---- Муха
         ui::Section("Fly");
         snprintf(sz, sizeof(sz), "%.0f%%", st.fHunger * 100.f);
@@ -252,6 +331,8 @@ namespace pages
         ui::PersonRow("Shiu et al. 2024", "Whole-brain spiking model, Nature",       ui::ERow::First);
         ui::PersonRow("FlyWire",          "Connectome v783, Dorkenwald et al. 2024", ui::ERow::Middle);
         ui::PersonRow("fly-connectome",   "Senses, readouts and behaviour, XYZ-WEB3", ui::ERow::Middle);
+        ui::PersonRow("BANC",             "Brain and nerve cord connectome, Bates et al. 2026", ui::ERow::Middle);
+        ui::PersonRow("Pugliese et al. 2025", "Nerve cord walking rhythm model", ui::ERow::Middle);
         ui::PersonRow("NeuroMechFly",     "Leg rhythm and grooming the body follows", ui::ERow::Last);
 
         ui::Section("Libraries");

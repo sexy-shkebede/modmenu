@@ -42,6 +42,7 @@ namespace fly
         bool  bFlight    = false;  // в полёте
         bool  bStartle   = false;  // вздрагивание
         float fHead      = 0.f;    // −1..1, + — голова влево (DNp15)
+        float fStepHz    = 0.f;    // ритм ног из нервной цепочки; 0 — по скорости (шаг ~1 мм)
     };
 
     class CBody
@@ -52,6 +53,7 @@ namespace fly
 
     private:
         float m_fPhase = 0.f;          // фаза трипода, циклы
+        float m_fFreq = 0.f;           // шагов в секунду
         float m_fFwd = 0.f, m_fYaw = 0.f;
         float m_fGroom = 0.f, m_fGroomT = 0.f;
         float m_fEat = 0.f, m_fProb = 0.f;

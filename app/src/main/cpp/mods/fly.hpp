@@ -6,7 +6,8 @@
 
 struct SWorldEye;
 
-// Муха в игре: мозг (fly/sim) решает, тело (fly/body) показывает, слой мира рисует.
+// Муха в игре: мозг (fly/sim) решает, нервная цепочка (если есть fly_vnc.bin) двигает ноги,
+// тело (fly/body) показывает, слой мира рисует.
 // Пороги и органы чувств — как в fly-connectome (tiktok/senses.py, show.py), а мир — игра:
 // муха видит её геометрию лучами-фасетками, ходит по любым поверхностям (пол, стены, потолок),
 // летает, садится, чистится от пыли, ищет еду, когда голодна. Капли сахара ставит игрок,
@@ -38,6 +39,11 @@ namespace flymod
         float       fTurn     = 0.f;     // −1..1, + — влево
         float       fHunger   = 0.f, fDust = 0.f;
         int         nDrops    = 0, nEaten = 0, nFlights = 0;
+        // нервная цепочка (BANC): мотонейроны ног, крыльев, прыжка
+        bool        bVnc      = false;
+        fly::SVncOut vnc;
+        float       fStepHz   = 0.f;                // ритм шагов
+        int         nRhythm   = 0;                  // у скольких ног ритм сейчас
         ETool       eTool     = ETool::Off;
         std::string sMessage;
         int         iMessageId = 0;

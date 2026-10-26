@@ -72,6 +72,11 @@ namespace
     constexpr float kDustPuff = 30.f;    // Гц щетинкам при голове в пыли целиком (чистка — от ~15 Гц)
     constexpr float kOdorM    = 1.2f;    // м: запах капли спадает в e раз на таком расстоянии
     constexpr float kSaccade  = 14.f;    // рад/с: резкий разворот в полёте (саккада)
+    // Нервная цепочка (BANC). BDN2 15 Гц — ходьба прямо (Pugliese et al. 2025: ритм всех ног
+    // ~10 Гц). Ноги шагают в ритме цепочки, скорость — длина шага × этот ритм
+    constexpr float kBdn2Hz   = 15.f;    // Гц в BDN2 (DNg100), когда муха идёт (правило тела)
+    constexpr float kStrideMm = 1.f;     // длина шага (правило тела)
+    constexpr float kTtmJump  = 25.f;    // Гц на нейрон, L + R: мотонейроны прыжковой мышцы — взлёт
 
     // Фасетки: 24 направления на глаз (оси мухи), глаз видит вбок и вперёд с перекрытием
     constexpr int kEyeAz = 6, kEyeEl = 4, kFacets = 2 * kEyeAz * kEyeEl;
@@ -147,6 +152,13 @@ namespace
         float     aFacet[kFacets];
         int       iFacetNext = 0;
         float     aIn[fly::kInputCount] = {};
+        // нервная цепочка: что делают ноги и прыжковая мышца
+        bool      bVnc = false;
+        fly::SVncOut vnc;
+        float     fWalkDrive = 0.f;           // что подаём в BDN2 (решено на прошлом такте)
+        float     fStepHz = 0.f;              // ритм ног (средний по ногам с ритмом; пропал — последний)
+        int       nRhythm = 0;                // у скольких ног ритм сейчас
+        bool      bJumpTtm = false;           // взлетела от TTMn (а не от гигантского волокна)
         SFly() { for (float& d : aFacet) d = -1.f; }
     };
     SFly                g_Fly;
@@ -366,6 +378,7 @@ namespace
     {
         f.eMode     = EMode::Flight;
         f.bEscape   = bEscape;
+        if (!bEscape) f.bJumpTtm = false;
         f.bLanding  = false;
         f.iCarrier  = -1;
         f.fFlightT0 = g_fT;
@@ -640,9 +653,26 @@ namespace
             in[fly::kHearA] = fminf(130.f, 100.f * env);
             in[fly::kHearB] = fminf(130.f, 40.f * env);
         }
+        // ---- BDN2: "иди" — решение поведения, шаги — уже нервная цепочка
+        in[fly::kWalkDrive] = f.bVnc && !bFlying ? f.fWalkDrive : 0.f;
+
         const float tlL = StimAge(f, EStim::LoomL), tlR = StimAge(f, EStim::LoomR);
         if (tlL >= 0.f && tlL < kLoomDur) in[fly::kLoomL] = fmaxf(in[fly::kLoomL], 60.f);
         if (tlR >= 0.f && tlR < kLoomDur) in[fly::kLoomR] = fmaxf(in[fly::kLoomR], 60.f);
+    }
+
+    // ---------------------------------------------------------------- ноги из нервной цепочки
+    // Ритм шагов — средний по ногам, где цепочка его сейчас даёт. Сбился (другие DN шумят) —
+    // ноги держат прежний: ритм пропадает на доли секунды, шаг от этого не ломается
+    void LegsFromVnc(SFly& f)
+    {
+        const fly::SVncOut& o = f.vnc;
+        float hz = 0.f;
+        int   n  = 0;
+        for (float h : o.aLegHz) if (h > 0.f) { hz += h; n++; }
+        f.nRhythm = n;
+        if (n) f.fStepHz = hz / (float)n;
+        else if (f.fStepHz <= 0.f) f.fStepHz = o.fBaseHz;
     }
 
     // ---------------------------------------------------------------- шаг по поверхности
@@ -818,6 +848,10 @@ namespace
         f.fHead  = tanhf(kHeadGain * (F[fly::kHeadL] - F[fly::kHeadR]));
         cmd.fHead = f.fHead;
 
+        if (f.bVnc) LegsFromVnc(f);
+        f.fWalkDrive = 0.f;   // идёт — поставит ветка ходьбы ниже
+        cmd.fStepHz  = f.fStepHz;
+
         if (f.eMode == EMode::Flight)
         {
             Fly(f, s, dt, cmd, f.eSeek == ESeek::Food ? se.fFood : 0.f);
@@ -851,9 +885,12 @@ namespace
             }
         }
 
-        // ---- взлёт от угрозы: гигантское волокно DNp01
-        if (gf > kTakeoff && f.fGfCool <= 0.f)
+        // ---- взлёт от угрозы: гигантское волокно DNp01 (его электрический синапс на TTMn в
+        // коннектоме не виден) или сами мотонейроны прыжковой мышцы в цепочке — взлёт без GF
+        const float ttm = f.bVnc ? f.vnc.aTtm[0] + f.vnc.aTtm[1] : 0.f;
+        if ((gf > kTakeoff || ttm > kTtmJump) && f.fGfCool <= 0.f)
         {
+            f.bJumpTtm = gf <= kTakeoff;
             Vector3 away;
             if (se.fThreat > 0.f) away = Sub(f.pos, se.threat);
             else
@@ -862,7 +899,7 @@ namespace
                 const float side = f.aIn[fly::kLoomL] - f.aIn[fly::kLoomR];
                 away = fabsf(side) > 1.f ? Mul(LeftOf(f), side > 0.f ? -1.f : 1.f) : f.fwd;
             }
-            TakeOff(f, Norm(InPlane(away, f.up), f.fwd), true, s, "Takeoff! The giant fiber DNp01 fired");
+            TakeOff(f, Norm(InPlane(away, f.up), f.fwd), true, s, f.bJumpTtm ? "Takeoff! The jump muscle motor neurons (TTMn) fired" : "Takeoff! The giant fiber DNp01 fired");
             f.body.Update(dt, cmd);
             return;
         }
@@ -912,8 +949,11 @@ namespace
                     f.fNextRest = 4.f + 6.f * Rand01();
                 }
             }
-            float v = kWalkMm * (aL + aR) * 0.5f;
-            float w = (aR - aL) * kWalkMm / kTrackMm * 0.5f;
+            // Есть цепочка: решение "идти" — в BDN2, шагают ноги в её ритме (скорость — шаг × ритм)
+            const float walk = f.bVnc ? kStrideMm * f.fStepHz : kWalkMm;
+            if (f.bVnc) f.fWalkDrive = f.eState == EState::Rest ? 0.f : kBdn2Hz;
+            float v = walk * (aL + aR) * 0.5f;
+            float w = (aR - aL) * walk / kTrackMm * 0.5f;
             // запах еды: идти туда, где он сильнее (правило тела, как в полёте)
             if (!bThreat && f.fOdor > 0.03f && f.fHunger > 0.1f)
             {
@@ -922,7 +962,7 @@ namespace
                 {
                     const float ang = atan2f(Dot(LeftOf(f), g), Dot(f.fwd, g));
                     w += Clamp(ang * 1.5f, -2.f, 2.f) * (0.3f + 0.7f * f.fHunger) * Clamp(f.fOdor / 0.1f, 0.f, 1.f);
-                    if (f.eState == EState::Rest) { f.fRestT = 0.f; aL = aR = 1.f; v = kWalkMm; }
+                    if (f.eState == EState::Rest) { f.fRestT = 0.f; aL = aR = 1.f; v = walk; f.fWalkDrive = f.bVnc ? kBdn2Hz : 0.f; }
                     if (f.eState == EState::Walk || f.eState == EState::Rest) f.eState = EState::Seek;
                 }
             }
@@ -985,6 +1025,7 @@ namespace
         {
         case EState::Swatted:   pszState = "Swatted";         pszCause = "didn't get away in time"; break;
         case EState::Takeoff:   pszState = "Takeoff!";        pszCause = f.bEscape ? "DNp01 giant fiber" : "body rule: decided to fly";
+                                if (f.bEscape && f.bJumpTtm) { pszCause = "TTMn jump motor neurons"; snprintf(szLine2, n, "nerve cord: TTMn jump · %.0f Hz", f.vnc.aTtm[0] + f.vnc.aTtm[1]); return; }
                                 if (f.bEscape) { snprintf(szLine2, n, "DNp01 giant fiber · %.0f Hz", F[fly::kGF]); return; }
                                 break;
         case EState::Dodge:     pszState = "Dodging";         pszCause = "LPLC2 / LC4 → DNa01 / DNa02";
@@ -1015,6 +1056,12 @@ namespace
         case EState::Rest:      pszState = "Resting";         pszCause = "body rule: a pause"; break;
         case EState::Stuck:     pszState = "Turning back";    pszCause = "body rule: no surface ahead"; break;
         default:                pszState = fabsf(f.fTurn) > 0.3f ? (f.fTurn > 0.f ? "Turning left" : "Turning right") : "Walking";
+                                if (f.bVnc && fabsf(f.fTurn) <= 0.3f)
+                                {
+                                    pszCause = "BDN2 → nerve cord CPG";
+                                    snprintf(szLine2, n, "BDN2 → nerve cord CPG · legs %.0f Hz", f.fStepHz);
+                                    return;
+                                }
                                 pszCause = fabsf(f.fTurn) > 0.3f ? "DNa01 / DNa02" : "walking rhythm of the body";
                                 if (fabsf(f.fTurn) > 0.3f) { snprintf(szLine2, n, "DNa L %.0f · R %.0f Hz", F[fly::kSteerL], F[fly::kSteerR]); return; }
                                 break;
@@ -1088,6 +1135,10 @@ namespace
         st.nDrops    = (int)g_Drops.size();
         st.nEaten    = f.nEaten;
         st.nFlights  = f.nFlights;
+        st.bVnc      = f.bExists && f.bVnc;
+        st.vnc       = f.vnc;
+        st.fStepHz   = f.fStepHz;
+        st.nRhythm   = f.nRhythm;
     }
 
     std::vector<std::string> BrainPaths(std::string& sPkg)
@@ -1265,6 +1316,7 @@ void flymod::Tick(float fDt)
         else if (fly::SimReadout(aHz, dMs))
         {
             dt = (float)(dMs / 1000.0);
+            f.bVnc = fly::SimVnc(f.vnc) && f.vnc.bReady;
             for (int i = 0; i < fly::kOutputCount; i++)
             {
                 const float tau = i == fly::kMN9 ? kTauMN9 : (i == fly::kHear2 ? kTauHear : kTauFilt);

@@ -30,6 +30,7 @@ add_library(openxrhooktest SHARED
 
     fly/connectome.cpp
     fly/brain.cpp
+    fly/vnc.cpp
     fly/sim.cpp
     fly/body.cpp
     fly/draw.cpp
@@ -74,23 +75,33 @@ target_compile_definitions(openxrhooktest PRIVATE IMGUI_USER_CONFIG="imgui_confi
 target_compile_options(openxrhooktest PRIVATE -O2 -fvisibility=hidden -fvisibility-inlines-hidden)
 target_link_options(openxrhooktest PRIVATE -Wl,--gc-sections -Wl,--exclude-libs,ALL)
 
-# z — распаковка fly_brain.bin (zlib есть в любой прошивке Android)
+# z — распаковка fly_brain.bin и fly_vnc.bin (zlib есть в любой прошивке Android)
 target_link_libraries(openxrhooktest log vulkan EGL GLESv3 z dobby)
 
-# ---- Мозг мухи внутри библиотеки (необязательно) ----
+# ---- Мозг и нервная цепочка мухи внутри библиотеки (необязательно) ----
 # Лежит fly_brain.bin в корне проекта (или путь задан -DFLY_BRAIN_BIN=...) — он вшивается в .so, и
-# класть файл на шлем не нужно. Нет файла — мод ищет его на шлеме. Положил файл после первой
-# сборки — Build → Refresh Linked C++ Projects (CMake должен его заметить).
+# класть файл на шлем не нужно. Нет файла — мод ищет его на шлеме. То же с fly_vnc.bin
+# (-DFLY_VNC_BIN=...): брюшная нервная цепочка из BANC. Положил файл после первой сборки —
+# Build → Refresh Linked C++ Projects (CMake должен его заметить).
 set(FLY_BRAIN_BIN "${CMAKE_CURRENT_SOURCE_DIR}/../../../../fly_brain.bin" CACHE FILEPATH "fly_brain.bin to build into the library")
-if (EXISTS "${FLY_BRAIN_BIN}")
-    get_filename_component(FLY_BRAIN_BIN_ABS "${FLY_BRAIN_BIN}" ABSOLUTE)
+set(FLY_VNC_BIN "${CMAKE_CURRENT_SOURCE_DIR}/../../../../fly_vnc.bin" CACHE FILEPATH "fly_vnc.bin to build into the library")
+set(FLY_BLOB_DEPENDS "")
+foreach (KIND BRAIN VNC)
+    set(BIN "${FLY_${KIND}_BIN}")
+    string(TOLOWER "${KIND}" kind)
+    if (EXISTS "${BIN}")
+        get_filename_component(BIN_ABS "${BIN}" ABSOLUTE)
+        target_compile_definitions(openxrhooktest PRIVATE FLY_${KIND}_EMBEDDED=1 FLY_${KIND}_PATH="${BIN_ABS}")
+        list(APPEND FLY_BLOB_DEPENDS "${BIN_ABS}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${BIN_ABS}")
+        file(SIZE "${BIN_ABS}" BIN_SIZE)
+        message(STATUS "fly: building ${BIN_ABS} (${BIN_SIZE} bytes) into the library")
+    else()
+        message(STATUS "fly: no fly_${kind}.bin to build in, the mod will look for it on the headset")
+    endif()
+endforeach()
+if (FLY_BLOB_DEPENDS)
     target_sources(openxrhooktest PRIVATE fly/brain_blob.cpp)
-    target_compile_definitions(openxrhooktest PRIVATE FLY_BRAIN_EMBEDDED=1 FLY_BRAIN_PATH="${FLY_BRAIN_BIN_ABS}")
-    # .incbin не попадает в зависимости компилятора: новый файл мозга — пересобрать blob
-    set_source_files_properties(fly/brain_blob.cpp PROPERTIES OBJECT_DEPENDS "${FLY_BRAIN_BIN_ABS}")
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${FLY_BRAIN_BIN_ABS}")
-    file(SIZE "${FLY_BRAIN_BIN_ABS}" FLY_BRAIN_SIZE)
-    message(STATUS "fly: building ${FLY_BRAIN_BIN_ABS} (${FLY_BRAIN_SIZE} bytes) into the library")
-else()
-    message(STATUS "fly: no fly_brain.bin to build in, the mod will look for it on the headset")
+    # .incbin не попадает в зависимости компилятора: новый файл — пересобрать blob
+    set_source_files_properties(fly/brain_blob.cpp PROPERTIES OBJECT_DEPENDS "${FLY_BLOB_DEPENDS}")
 endif()

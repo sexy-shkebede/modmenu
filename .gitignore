@@ -11,7 +11,12 @@ __pycache__/
 # коннектом мухи (~50 МБ) собирается tools/fly/make_brain.py и в репозиторий не кладётся
 fly_brain.bin
 fly_brain_raw.bin
-# исходные данные, которые качает make_brain.py --download
+# нервная цепочка (~2 МБ) — tools/fly/make_vnc.py, тоже не кладётся
+fly_vnc.bin
+fly_vnc_raw.bin
+# исходные данные, которые качают make_brain.py / make_vnc.py --download
 Connectivity_783.parquet
 Completeness_783.csv
 neuron_annotations.tsv
+banc_888_meta.feather
+banc_888_edgelist_simple_v3.feather

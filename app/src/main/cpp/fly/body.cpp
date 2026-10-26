@@ -84,10 +84,12 @@ void fly::CBody::Update(float fDt, const SBodyCmd& c)
     m_fFwd = Approach(m_fFwd, bStand ? 0.f : c.fFwd, 12.f, fDt);
     m_fYaw = Approach(m_fYaw, bStand ? 0.f : c.fYaw, 12.f, fDt);
 
-    // Частота шагов — по скорости ступней: шаг ~1 мм, до 12 Гц (живая муха — около 10 Гц)
+    // Частота шагов — ритм ног из нервной цепочки, а без него — по скорости ступней: шаг ~1 мм,
+    // до 12 Гц (живая муха — около 10 Гц). Длина шага — скорость / частота
     const float fSpeed = fabsf(m_fFwd) + fabsf(m_fYaw) * 0.7f;
-    const float fFreq  = fminf(fSpeed / 1.0f, 12.f);
-    m_fPhase = fmodf(m_fPhase + fFreq * fDt, 1.f);
+    const float fWant  = c.fStepHz > 0.f && fSpeed > 0.3f ? fminf(c.fStepHz, 20.f) : fminf(fSpeed / 1.0f, 12.f);
+    m_fFreq  = Approach(m_fFreq, fWant, 6.f, fDt);
+    m_fPhase = fmodf(m_fPhase + m_fFreq * fDt, 1.f);
 
     m_fGroom = Approach(m_fGroom, c.bGroom ? 1.f : 0.f, 10.f, fDt);
     m_fGroomT = c.bGroom ? m_fGroomT + fDt : 0.f;
@@ -145,7 +147,7 @@ void fly::CBody::Pose(SPose& o) const
     Ell(pt, V3{ 0.08f, 0.06f, 0.08f } * (0.6f + 0.4f * m_fProb), qHead, kLabellum);
 
     // ---- ноги
-    const float fStride = 1.f / fmaxf(fminf((fabsf(m_fFwd) + fabsf(m_fYaw) * 0.7f) / 1.0f, 12.f), 0.5f);   // с на цикл
+    const float fStride = 1.f / fmaxf(m_fFreq, 0.5f);   // с на цикл
     const float fWalk   = Clamp01((fabsf(m_fFwd) + fabsf(m_fYaw) * 0.7f) / 0.5f) * (1.f - m_fGroom) * (1.f - m_fFlight);
     for (int leg = 0; leg < 6; leg++)
     {
