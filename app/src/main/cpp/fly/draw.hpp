@@ -21,8 +21,8 @@ namespace fly
     {
         SRig  rig;
         bool  bFly = false;
-        float aOrigin[3] = {};         // мир Unity: точка на полу под грудью мухи
-        float fYaw = 0.f, fPitch = 0.f, fRoll = 0.f;   // рад; yaw + — к +X мира
+        float aOrigin[3] = {};         // мир Unity: точка на поверхности под грудью мухи
+        float aRot[4] = { 0.f, 0.f, 0.f, 1.f };   // оси мухи (x вправо, y вверх, z вперёд) → мир
         float fMmToWorld = 0.03f;      // единиц мира в миллиметре мухи
         SPose pose;
         int   nDrops = 0;

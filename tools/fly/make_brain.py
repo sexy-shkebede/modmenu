@@ -14,7 +14,7 @@ libopenxrhooktest.so (без сжатия он читается прямо из 
 положить на шлем: adb push fly_brain.bin /sdcard/Android/obb/<пакет игры>/
 (или в /sdcard/Android/data/<пакет игры>/files/). Формат — в конце файла.
 
-Группы входов и выходов — ровно как в fly-connectome/tiktok/senses.py (SENSES и READOUTS).
+Группы входов и выходов — как в fly-connectome/tiktok/senses.py (SENSES и READOUTS), плюс запах (odor_L/R).
 """
 import argparse
 import hashlib
@@ -49,6 +49,10 @@ LC10 = ["LC10a", "LC10c-1", "LC10c-2", "LC10d", "LC10e"]
 LOOM = ["LPLC2", "LC4"]
 FTB_LPT = ["HSE", "HSN", "HSS", "VCH", "DCH"]
 BTF_LPT = ["H1", "H2"]
+# Запах сладкого и бродящего (уксус, фрукты): обонятельные рецепторы антенн, которые отвечают на
+# него сильнее всего (Semmelhack & Wang 2009: DM1, DM2, DM4, VA2, VM2, DP1m). Нет в senses.py —
+# добавлено для мухи в игре: капли сахара пахнут
+ODOR = ["ORN_DM1", "ORN_DM2", "ORN_DM4", "ORN_VA2", "ORN_VM2", "ORN_DP1m"]
 GROUPS = {
     # входы
     "obj_L": dict(types=LC10, side="left"),   "obj_R": dict(types=LC10, side="right"),
@@ -60,6 +64,7 @@ GROUPS = {
     "hear_A": dict(prefix=["JO-A"]), "hear_B": dict(prefix=["JO-B"]),
     "puff": dict(types=["BM_Ant", "BM_Fr", "BM_FrOr"]), "wind": dict(prefix=["JO-C", "JO-E"]),
     "sugar": dict(ids=SUGAR_IDS_630), "bitter": dict(sub_class="bitter"),
+    "odor_L": dict(types=ODOR, side="left"), "odor_R": dict(types=ODOR, side="right"),
     # выходы
     "steer_L": dict(types=["DNa01", "DNa02"], side="left"), "steer_R": dict(types=["DNa01", "DNa02"], side="right"),
     "head_L": dict(types=["DNp15"], side="left"), "head_R": dict(types=["DNp15"], side="right"),

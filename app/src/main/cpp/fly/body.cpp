@@ -194,4 +194,20 @@ void fly::CBody::Pose(SPose& o) const
         w = { { 0.16f * side, 0.86f, 0.40f }, { q.x, q.y, q.z, q.w }, side };
     }
     o.fWingSpread = fSpread;
+
+    // Веер взмаха: пять положений крыла от верхней до нижней точки
+    o.fBlur = m_fFlight;
+    o.nBlur = 0;
+    if (m_fFlight > 0.05f)
+        for (int i = 0; i < 2; i++)
+        {
+            const float side = i == 0 ? -1.f : 1.f;
+            const Q4 qOut = AxisAngle(kY, side * -(0.22f + 1.25f * fSpread));
+            for (int k = 0; k < 5; k++)
+            {
+                const float stroke = 1.1f * fSpread * (-1.f + 0.5f * (float)k);
+                const Q4 q = Mul(AxisAngle(kZ, side * (stroke + 0.08f)), Mul(qOut, AxisAngle(kX, -0.05f)));
+                o.aBlur[o.nBlur++] = { { 0.16f * side, 0.86f, 0.40f }, { q.x, q.y, q.z, q.w }, side };
+            }
+        }
 }

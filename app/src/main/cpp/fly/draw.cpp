@@ -65,6 +65,8 @@ namespace
         return a;
     }
 
+    float Clamp01(float t) { return t < 0.f ? 0.f : (t > 1.f ? 1.f : t); }
+
     // ---------------------------------------------------------------- цвет
     float Lin(float c) { return c <= 0.04045f ? c / 12.92f : powf((c + 0.055f) / 1.055f, 2.4f); }
 
@@ -185,13 +187,14 @@ namespace
         }
     }
 
-    void Wing(const SXf& X, const SWing& w)
+    void Wing(const SXf& X, const SWing& w, float fAlpha, bool bVeins)
     {
         // Мембрана: вытянутый эллипс от шарнира назад (длина 2.1 мм, ширина 0.85 мм) и жилки
         const float L = 2.1f, Wd = 0.42f;
         const V3 hinge = P3(w.hinge);
         const auto P = [&](float x, float z) { return X(hinge + Rot(w.q, { x * w.fSide, 0.f, -z })); };
-        const SCol mem = { 0.86f, 0.89f, 0.93f, 0.24f }, vein = { 0.32f, 0.30f, 0.28f, 0.55f };
+        const SCol mem = { 0.86f, 0.89f, 0.93f, 0.24f * fAlpha }, vein = { 0.32f, 0.30f, 0.28f, 0.55f * fAlpha };
+        if (fAlpha <= 0.01f) return;
         const int n = 18;
         const V3 c0 = P(0.f, 0.f);
         for (int k = 0; k < n; k++)
@@ -210,6 +213,7 @@ namespace
             Tri(c0, e1, e0, c0, mem, 0.f, true);
         }
         // жилки: узкие полоски от шарнира веером
+        if (!bVeins) return;
         const float aVein[4] = { 0.30f, 0.18f, 0.06f, -0.06f };
         for (float vx : aVein)
         {
@@ -286,17 +290,16 @@ void DrawScene(ImDrawList* dl, const SScene& sc, const SWorldEye* pEyes, int nEy
 
     // ---- треугольники в мире
     g_World.clear();
-    const float qYaw[4]   = { 0.f, sinf(sc.fYaw * 0.5f), 0.f, cosf(sc.fYaw * 0.5f) };
-    const float qPitch[4] = { sinf(sc.fPitch * 0.5f), 0.f, 0.f, cosf(sc.fPitch * 0.5f) };
-    const float qRoll[4]  = { 0.f, 0.f, sinf(sc.fRoll * 0.5f), cosf(sc.fRoll * 0.5f) };
-    const auto Body = [&](V3 v) { return Rot(qYaw, Rot(qPitch, Rot(qRoll, v))); };
+    const auto Body = [&](V3 v) { return Rot(sc.aRot, v); };
     const float s = sc.fMmToWorld;
     const SXf X = { P3(sc.aOrigin), Body({ s, 0.f, 0.f }), Body({ 0.f, s, 0.f }), Body({ 0.f, 0.f, s }) };
     if (sc.bFly)
     {
         for (int i = 0; i < sc.pose.nEll; i++) Ellipsoid(X, sc.pose.aEll[i]);
         for (int i = 0; i < sc.pose.nSeg; i++) Segment(X, sc.pose.aSeg[i]);
-        for (const SWing& w : sc.pose.aWing) Wing(X, w);
+        // в полёте крыло почти не видно — виден размытый веер взмаха
+        for (const SWing& w : sc.pose.aWing) Wing(X, w, 1.f - 0.85f * sc.pose.fBlur, true);
+        for (int i = 0; i < sc.pose.nBlur; i++) Wing(X, sc.pose.aBlur[i], 0.3f * sc.pose.fBlur, false);
     }
     for (int i = 0; i < sc.nDrops && i < 8; i++) Drop(sc.aDrops[i]);
     if (g_World.empty()) return;
@@ -342,6 +345,18 @@ void DrawScene(ImDrawList* dl, const SScene& sc, const SWorldEye* pEyes, int nEy
 
         dl->PushClipRect(ImVec2(eye.fX, eye.fY), ImVec2(eye.fX + eye.fW, eye.fY + eye.fH), false);
         for (const STri& t : g_Eye) e.Poly(t.p, 3, Shade(t.col, t.fSpec));
+
+        // Издалека муха меньше пикселя и треугольники пропадают — как настоящая, видна тёмной точкой
+        if (sc.bFly)
+        {
+            const V3 c = M.Point(X({ 0.f, 0.6f, 0.2f }));
+            if (-c.z > kNear)
+            {
+                const float fPx = 1.25f * s / -c.z * e.sx;   // полдлины тела в пикселях
+                if (fPx < 4.f)
+                    dl->AddCircleFilled(e.Project(c), fmaxf(fPx * 0.6f, 1.1f), IM_COL32(20, 14, 10, (int)(230.f * Clamp01((4.f - fPx) / 2.f))), 8);
+            }
+        }
 
         // ---- подпись над мухой: плашка с текстом на глубине мухи
         if (sc.bFly && sc.szLabel[0] && g_pFont)

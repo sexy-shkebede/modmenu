@@ -24,6 +24,11 @@ namespace fly
         int        nSeg = 0;
         SWing      aWing[2];
         float      fWingSpread = 0.f;
+        // В полёте (200 взмахов в секунду) крыло не видно — видно размытый веер: положения
+        // крыла по всему ходу взмаха; fBlur 0..1 — насколько крылья уже "размыты"
+        SWing      aBlur[10];
+        int        nBlur = 0;
+        float      fBlur = 0.f;
     };
 
     // Команды телу на кадр — из поведения
@@ -34,7 +39,7 @@ namespace fly
         bool  bGroom     = false;  // чистка передними лапами (DNg84/DNg35)
         bool  bEat       = false;  // стоит у еды
         float fProboscis = 0.f;    // 0..1 (MN9)
-        bool  bFlight    = false;  // в полёте (DNp01)
+        bool  bFlight    = false;  // в полёте
         bool  bStartle   = false;  // вздрагивание
         float fHead      = 0.f;    // −1..1, + — голова влево (DNp15)
     };

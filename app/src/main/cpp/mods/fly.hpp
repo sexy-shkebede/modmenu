@@ -7,8 +7,10 @@
 struct SWorldEye;
 
 // Муха в игре: мозг (fly/sim) решает, тело (fly/body) показывает, слой мира рисует.
-// Органы чувств и правила тела — как в fly-connectome/show.py, только мир — игра:
-// капли сахара ставит игрок, угроза — его руки, приманка — точка луча.
+// Пороги и органы чувств — как в fly-connectome (tiktok/senses.py, show.py), а мир — игра:
+// муха видит её геометрию лучами-фасетками, ходит по любым поверхностям (пол, стены, потолок),
+// летает, садится, чистится от пыли, ищет еду, когда голодна. Капли сахара ставит игрок,
+// угроза — его руки и голова, приманка — точка луча.
 // Меню и хук (рендер-поток) читают снимок и ставят команды; Unity трогает только Tick
 // в главном потоке игры.
 namespace flymod
@@ -16,28 +18,26 @@ namespace flymod
     enum class ETool { Off, Spawn, Sugar, Lure };                     // что делает луч правой руки
     enum class EStim { Puff, Sugar, Bitter, LoomL, LoomR, Sound };    // стимулы прямо в нейроны
 
-    enum class EState { None, Walk, Rest, Avoid, Seek, Threat, Groom, Eat, Proboscis, Flight, Startle, Swatted };
+    enum class EState { None, Walk, Rest, Seek, Threat, Groom, Eat, Proboscis, Takeoff, Flight, Dodge, Landing, Startle, Swatted, Stuck };
 
     struct SOptions
     {
-        float fSize      = 30.f;    // во сколько раз муха больше настоящей (2.5 мм)
-        float fTimeScale = 100.f;   // %, 100 — реальное время
-        bool  bWander    = true;    // бродит сама; выключено — идёт только к еде, приманке, от угрозы
-        bool  bLabels    = true;    // подпись над мухой
-        bool  bSwat      = true;    // быстрая рука, догнавшая муху до взлёта, её прихлопывает
+        float fSize   = 10.f;     // во сколько раз муха больше настоящей (2.5 мм); 1 — настоящая
+        bool  bLabels = true;     // подпись над мухой
     };
 
     struct SStatus
     {
         bool        bFly      = false;
+        bool        bFlying   = false;
         EState      eState    = EState::None;
         const char* pszState  = "";      // что делает (для меню и подписи)
         const char* pszCause  = "";      // какие нейроны / правило это решают
         float       aOut[fly::kOutputCount] = {};   // сглаженные частоты выходов, Гц на нейрон
         float       aIn[fly::kInputCount]   = {};   // что подаём на входы, Гц
         float       fTurn     = 0.f;     // −1..1, + — влево
-        float       fHunger   = 0.f;
-        int         nDrops    = 0, nEaten = 0, nTakeoffs = 0;
+        float       fHunger   = 0.f, fDust = 0.f;
+        int         nDrops    = 0, nEaten = 0, nFlights = 0;
         ETool       eTool     = ETool::Off;
         std::string sMessage;
         int         iMessageId = 0;

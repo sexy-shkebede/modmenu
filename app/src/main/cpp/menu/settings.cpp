@@ -56,9 +56,9 @@ namespace
         }
         const flymod::SOptions fo = flymod::GetOptions();
         fprintf(f, "seed=%d\nstyle=%d\ndark=%d\nsize=%.0f\nmotion=%d\n"
-                   "fly_size=%.0f\nfly_time=%.0f\nfly_wander=%d\nfly_swat=%d\nfly_labels=%d\n",
+                   "fly_scale=%.0f\nfly_labels=%d\n",
                 g_S.iSeed, g_S.iStyle, (int)g_S.bDark, g_S.fSizePct, (int)g_S.bMotion,
-                fo.fSize, fo.fTimeScale, (int)fo.bWander, (int)fo.bSwat, (int)fo.bLabels);
+                fo.fSize, (int)fo.bLabels);
         fclose(f);
     }
 
@@ -87,11 +87,8 @@ void settings::Load()
                 else if (sscanf(szLine, "dark=%d",     &i) == 1) g_S.bDark    = i != 0;
                 else if (sscanf(szLine, "size=%f",     &v) == 1) g_S.fSizePct = v;
                 else if (sscanf(szLine, "motion=%d",   &i) == 1) g_S.bMotion  = i != 0;
-                else if (sscanf(szLine, "fly_size=%f",   &v) == 1) fo.fSize      = v;
-                else if (sscanf(szLine, "fly_time=%f",   &v) == 1) fo.fTimeScale = v;
-                else if (sscanf(szLine, "fly_wander=%d", &i) == 1) fo.bWander    = i != 0;
-                else if (sscanf(szLine, "fly_swat=%d",   &i) == 1) fo.bSwat      = i != 0;
-                else if (sscanf(szLine, "fly_labels=%d", &i) == 1) fo.bLabels    = i != 0;
+                else if (sscanf(szLine, "fly_scale=%f",  &v) == 1) fo.fSize   = v;
+                else if (sscanf(szLine, "fly_labels=%d", &i) == 1) fo.bLabels = i != 0;
             }
             fclose(f);
         }
@@ -99,8 +96,7 @@ void settings::Load()
     g_S.iSeed        = Clamp(g_S.iSeed, 0, theme::kSeedCount - 1);
     g_S.iStyle       = Clamp(g_S.iStyle, 0, theme::kStyleCount - 1);
     g_S.fSizePct     = Clamp(g_S.fSizePct, 80.f, 130.f);
-    fo.fSize         = Clamp(fo.fSize, 5.f, 60.f);
-    fo.fTimeScale    = Clamp(fo.fTimeScale, 10.f, 100.f);
+    fo.fSize         = Clamp(fo.fSize, 1.f, 30.f);
     flymod::SetOptions(fo);
     g_fScale = g_fTargetScale = g_S.fSizePct / 100.f;
     ui::g_bMotion = g_S.bMotion;

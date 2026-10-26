@@ -38,6 +38,7 @@ namespace pages
                 { "loom_L",  "LPLC2/LC4",  in[fly::kLoomL] > 3.f,  false }, { "loom_R", "LPLC2/LC4", in[fly::kLoomR] > 3.f, false },
                 { "puff",    "bristles",   in[fly::kPuff]  > 3.f,  false }, { "sugar",  "sugar GRN", in[fly::kSugar] > 3.f, false },
                 { "bitter",  "bitter GRN", in[fly::kBitter] > 3.f, false }, { "hear_A", "JO (ear)",  in[fly::kHearA] > 3.f, false },
+                { "odor_L",  "ORN (smell)", in[fly::kOdorL] > 3.f, false }, { "odor_R", "ORN (smell)", in[fly::kOdorR] > 3.f, false },
                 { "steer_L", "DNa",        o[fly::kSteerL] > 15.f, true  }, { "steer_R", "DNa",      o[fly::kSteerR] > 15.f, true },
                 { "gf",      "DNp01",      o[fly::kGF]     > 25.f, true  }, { "mn9",    "MN9",       o[fly::kMN9]    > 8.f,  true },
                 { "groom",   "DNg84/35",   o[fly::kGroom]  > 35.f, true  },
@@ -124,8 +125,8 @@ namespace pages
         if (ui::SegmentedRow("Beam", kTools, 4, &iTool, ui::ERow::First)) flymod::SetTool((flymod::ETool)iTool);
         if (ui::ActionsRow("Clear sugar", nullptr, st.nDrops > 0, false, ui::ERow::Last) == 1) flymod::ClearSugar();
         static const char* const kHints[] = {
-            "Pick what the beam does. The fly also reacts to your hands: swing at it and looming neurons LPLC2 / LC4 fire the giant fiber; touch it gently and head bristles start grooming.",
-            "Point at a floor or a table and pull the trigger. Pull again to move the fly.",
+            "The fly lives on its own: walks on floors, walls and ceilings, flies, lands, grooms off dust, searches for food when hungry. Swing at it and looming neurons LPLC2 / LC4 fire the giant fiber; touch it gently and head bristles start grooming.",
+            "Point at any surface, even a wall or a ceiling, and pull the trigger. Pull again to move the fly.",
             "Pull the trigger to put sugar drops. The fly sees them with LC10, steers with DNa01 / DNa02 and drinks with its proboscis (MN9).",
             "Hold the trigger and slowly drag the dot near the fly: LC10 neurons follow small moving things.",
         };
@@ -166,11 +167,14 @@ namespace pages
         // ---- Муха
         ui::Section("Fly");
         snprintf(sz, sizeof(sz), "%.0f%%", st.fHunger * 100.f);
-        char szEaten[16], szHops[16];
+        char szDust[16], szEaten[16], szFlights[16];
+        snprintf(szDust, sizeof(szDust), "%.0f%%", st.fDust * 100.f);
         snprintf(szEaten, sizeof(szEaten), "%d", st.nEaten);
-        snprintf(szHops, sizeof(szHops), "%d", st.nTakeoffs);
-        const ui::SStat aFly[] = { { "Hunger", st.bFly ? sz : "—" }, { "Drops eaten", szEaten }, { "Takeoffs", szHops }, { "Why", st.bFly ? st.pszCause : "—" } };
-        ui::StatGrid(aFly, 4);
+        snprintf(szFlights, sizeof(szFlights), "%d", st.nFlights);
+        const ui::SStat aFly[] = { { "Hunger", st.bFly ? sz : "—" }, { "Dust on the head", st.bFly ? szDust : "—" },
+                                   { "Drops eaten", szEaten }, { "Flights", szFlights },
+                                   { "Now", st.bFly ? st.pszState : "Not spawned" }, { "Why", st.bFly ? st.pszCause : "—" } };
+        ui::StatGrid(aFly, 6);
         ui::Gap(2);
         switch (ui::ActionsRow("Remove fly", "Reset brain", st.bFly, true, ui::ERow::Single))
         {
@@ -182,16 +186,14 @@ namespace pages
         // ---- Настройки
         ui::Section("Options");
         bool bChanged = false;
-        if (ui::SliderRow("Fly size", &opt.fSize, 5.f, 60.f, "%.0f×", ui::ERow::First)) { opt.fSize = roundf(opt.fSize); bChanged = true; }
-        if (ui::SliderRow("Time", &opt.fTimeScale, 10.f, 100.f, "%.0f%%", ui::ERow::Middle)) { opt.fTimeScale = roundf(opt.fTimeScale / 5.f) * 5.f; bChanged = true; }
-        bChanged |= ui::SwitchRow("Wander", "Walks around on its own. Off: only to food, the lure or away from threats", &opt.bWander, ui::ERow::Middle);
-        bChanged |= ui::SwitchRow("Swatting", "A fast hand that reaches the fly before takeoff swats it", &opt.bSwat, ui::ERow::Middle);
+        if (ui::SliderRow("Fly size", &opt.fSize, 1.f, 30.f, "%.0f×", ui::ERow::First)) { opt.fSize = roundf(opt.fSize); bChanged = true; }
         bChanged |= ui::SwitchRow("Labels", "What the fly does and which neurons decided it", &opt.bLabels, ui::ERow::Last);
         if (bChanged)
         {
             flymod::SetOptions(opt);
             settings::Changed(false);
         }
+        ui::SupportText("1× is a real fruit fly, 2.5 mm. Bigger is easier to see; its world scales with it, so it walks and flies just as much faster.");
         ui::Gap(56);   // место под snackbar
 
         // ---- Результат последнего действия — snackbar на 4 секунды

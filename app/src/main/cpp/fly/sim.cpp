@@ -10,7 +10,7 @@
 
 namespace
 {
-    const char* const kInputGroups[fly::kInputCount]   = { "obj_L", "obj_R", "loom_L", "loom_R", "puff", "wind", "sugar", "bitter", "hear_A", "hear_B" };
+    const char* const kInputGroups[fly::kInputCount]   = { "obj_L", "obj_R", "loom_L", "loom_R", "puff", "wind", "sugar", "bitter", "hear_A", "hear_B", "odor_L", "odor_R" };
     const char* const kOutputGroups[fly::kOutputCount] = { "steer_L", "steer_R", "head_L", "head_R", "gf", "fear", "mn9", "groom", "walk", "back", "hear2" };
 
     double NowS()

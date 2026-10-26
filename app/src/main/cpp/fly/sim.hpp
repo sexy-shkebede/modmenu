@@ -11,8 +11,9 @@
 // Все функции — потокобезопасные.
 namespace fly
 {
-    // Входы и выходы — группы нейронов из fly_brain.bin (как SENSES / READOUTS в senses.py)
-    enum EInput  { kObjL, kObjR, kLoomL, kLoomR, kPuff, kWind, kSugar, kBitter, kHearA, kHearB, kInputCount };
+    // Входы и выходы — группы нейронов из fly_brain.bin (как SENSES / READOUTS в senses.py; запах —
+    // добавлен). Группы нет в старом файле — вход просто молчит
+    enum EInput  { kObjL, kObjR, kLoomL, kLoomR, kPuff, kWind, kSugar, kBitter, kHearA, kHearB, kOdorL, kOdorR, kInputCount };
     enum EOutput { kSteerL, kSteerR, kHeadL, kHeadR, kGF, kFear, kMN9, kGroom, kWalk, kBack, kHear2, kOutputCount };
     const char* InputGroup(int i);
     const char* OutputGroup(int i);
